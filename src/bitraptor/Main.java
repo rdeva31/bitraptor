@@ -17,7 +17,7 @@ public class Main {
 		Starts the BitRaptor program.  No arguments required.
 	 */
 	public static void main(String[] args) {
-		System.out.println("BitRaptor -- possibly the crappiest bittorrent client you'll ever use (actually no, bitcomet is worse)\nType help for commands");
+		System.out.println("BitRaptor -- Possibly the crappiest bittorrent client you'll ever use (actually no, bitcomet is worse)\nType help for commands");
 		
 		BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
 		while (true)
@@ -58,7 +58,9 @@ public class Main {
 				new Main().handleSteal(new File(commandFull[1]));
 			}
 			else
+			{
 				System.out.println("im a computer and what is this");
+			}
 		}
 	}
 	
@@ -157,7 +159,7 @@ public class Main {
 				{
 					//while(decoder.getNextIndicator() != 'l')
 					//	announceLists.add(decoder.bdecode().getList());
-					//throw new Exception("Need to implement announce-list");
+					throw new Exception("Need to implement announce-list");
 				}
 				else if (field.equalsIgnoreCase("creation-date"))
 					creationDate = torrentFileMappings.get(field).getLong();
@@ -195,9 +197,9 @@ public class Main {
 			System.out.println(" with md5sum " + info.md5sum);
 		System.out.println("Have hashes for " + info.pieces.length + " pieces");
 		
-		//TODO: matt, start working here.  The printlns above are just for reference.  Everything you need is in the variables that 
-		//are println'ed.  Some of them might be null, so be careful with that shit
-		
+		//@Deva: I read over the code, and looked more into the protocol but I only had like 45 min due to having to make a
+		//few more changes to 408C stuff for Rob to test his stuff out with my code. Anyway, will be working on it hard core
+		//tomorrow afternoon starting at 3ish (after I finish my architecture drawings). Sorry for the slow start (lol tcp)
 	}
 	
 	
