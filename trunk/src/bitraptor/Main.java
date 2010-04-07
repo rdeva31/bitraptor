@@ -1,15 +1,9 @@
 package bitraptor;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.File;
-import java.io.FileInputStream;
-import org.klomp.snark.bencode.BDecoder;
-import org.klomp.snark.bencode.BEValue;
-import org.klomp.snark.bencode.InvalidBEncodingException;
-import java.util.Map;
-import java.util.List;
-import java.util.Set;
+import java.io.*;
+import java.util.*;
+import java.net.*;
+import org.klomp.snark.bencode.*;
 
 public class Main {
 
@@ -92,6 +86,7 @@ public class Main {
 		long creationDate = 0;
 		String comment = null, createdBy = null, encoding = null;
 		SingleFileInfo info = new SingleFileInfo();
+		byte[] infoHash = null; //hash of the info segment
 		
 		if (f == null)
 			return;
@@ -149,6 +144,8 @@ public class Main {
 					
 					if (infoDictionary.containsKey("md5sum"))
 						info.md5sum = infoDictionary.get("md5sum").getBytes();
+
+					infoHash = decoder.get_special_map_digest();
 					
 				}
 				else if (field.equalsIgnoreCase("announce"))
@@ -196,12 +193,71 @@ public class Main {
 		else
 			System.out.println(" with md5sum " + info.md5sum);
 		System.out.println("Have hashes for " + info.pieces.length + " pieces");
+		System.out.println("Info hash: " + infoHash);
+		//Now connect to the tracker and get a list of peers
+		byte [] peerID = new byte[20];
+		new Random().nextBytes(peerID);
+		System.out.println("Tracker response:");
 		
-		//@Deva: I read over the code, and looked more into the protocol but I only had like 45 min due to having to make a
-		//few more changes to 408C stuff for Rob to test his stuff out with my code. Anyway, will be working on it hard core
-		//tomorrow afternoon starting at 3ish (after I finish my architecture drawings). Sorry for the slow start (lol tcp)
+		try
+		{
+			System.out.println(announce(new URL(announceUrl), infoHash, peerID, 6881, 0, 0, info.fileLength, AnnounceEvent.STARTED));
+		}
+		catch (MalformedURLException e1)
+		{
+			System.out.println("Tracker url is malformed.");
+			return;
+		}
+		catch (IOException e2)
+		{
+			System.out.println("I think the tracker is out for lunch");
+			return;
+		}
+		catch (IndexOutOfBoundsException e3)
+		{
+			System.out.println("Damn, I think the hash is screwed up, so you're pretty much fucked.  Get a new torrent file");
+			return;
+		}
+		
 	}
 	
+	/**
+		Announces the torrent information to the tracker and returns the tracker response.
+		@param infoHash	SHA-1 hash of the info metadata in the torrent. Must be 20 bytes.
+		@param peerID	A 20-byte unique identifier.  No restrictions on what this is
+		@param port	The port number that the client is listening on. Typically in the range 6881-6889
+		@param uploaded	The number of bytes uploaded by this client during this session
+		@param downloaded	The number of bytes downloaded by this client during this session
+		@param left	Number of bytes that the client needs to download
+		@param event	Indicates the status of the connection
+		@return The response of the tracker or null on error.
+		@throws IOException	IOException thrown if unable to contact or read from server
+		@throws IndexOutOfBoundsException	Thrown if the hash or peerID are not of sufficient length
+	*/
+	private String announce(URL announceUrl, byte[] infoHash, byte[] peerID, int port, 
+		int uploaded, int downloaded, int left, AnnounceEvent event) throws IOException, IndexOutOfBoundsException
+	{
+		//Matt start working here
+		URLConnection trackerUrl = announceUrl.openConnection();
+		
+		BufferedWriter trackerWriter;
+		BufferedReader trackerReader;
+		
+		if (infoHash.length != 20)
+			throw new IndexOutOfBoundsException("hash length not 20 bytes");
+		if (peerID.length != 20)
+			throw new IndexOutOfBoundsException("peerID length not 20 bytes");
+			
+		trackerWriter = new BufferedWriter(new OutputStreamWriter(trackerUrl.getOutputStream()));
+		trackerReader = new BufferedReader(new InputStreamReader(trackerUrl.getInputStream()));
+		
+		String request = "GET " + announceUrl.getProtocol() + "://" +  announceUrl.getHost() + announceUrl.getPath() + "HTTP/1.1\r\n";
+		
+		System.out.println("Request is: " + request);
+		
+		return null;//shouldn't be returning null, just to make compiler stfu
+		
+	}
 	
 	private class Info
 	{
@@ -215,5 +271,12 @@ public class Main {
 		String name;
 		int fileLength;
 		byte md5sum[];
+	}
+	
+	private enum AnnounceEvent {
+		STARTED,
+		STOPPED,
+		COMPLETED,
+		NONE
 	}
 }
