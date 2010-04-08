@@ -11,18 +11,20 @@ public class Main {
 		Starts the BitRaptor program.  No arguments required.
 	 */
 	public static void main(String[] args) {
-		System.out.println("BitRaptor -- Possibly the crappiest bittorrent client you'll ever use (actually no, bitcomet is worse)\nType help for commands");
+		System.out.println("BitRaptor -- Takes a BITE out of crime");
+		System.out.println("(Type 'help' to see available commands)");
 		
 		BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
 		while (true)
 		{
+			String[] command;
+			
+			//Prompting for and reading user input
 			System.out.print("> ");
-			String command;
-			String[] commandFull;
 			
 			try
 			{
-				commandFull = in.readLine().trim().toLowerCase().split(" ");
+				command = in.readLine().trim().split(" ");
 			}
 			catch (Exception e)
 			{
@@ -30,18 +32,25 @@ public class Main {
 				return;
 			}
 			
-			command = commandFull[0];
-			
-			if (command.equals("help"))
+			//Executing the specified command
+			if (command[0].equalsIgnoreCase("help"))
+			{
 				new Main().handleHelp();
-			else if (command.equals("exit"))
+			}
+			else if (command[0].equalsIgnoreCase("exit"))
+			{
 				return;
-			else if (command.equals("steal"))
+			}
+			else if (command[0].equalsIgnoreCase("download") || command[0].equalsIgnoreCase("dl") ||
+				command[0].equalsIgnoreCase("steal"))
 			{
 				try
 				{
-					if (commandFull[1] == null)
-						throw new IndexOutOfBoundsException(); //let the catch handle this
+					//No torrent file specified
+					if (command[1] == null)
+					{
+						throw new IndexOutOfBoundsException();
+					}
 				}
 				catch (IndexOutOfBoundsException e)
 				{
@@ -49,11 +58,11 @@ public class Main {
 					continue;
 				}
 				
-				new Main().handleSteal(new File(commandFull[1]));
+				new Main().handleDownload(new File(command[1]));
 			}
 			else
 			{
-				System.out.println("im a computer and what is this");
+				System.out.println("Invalid command. Type 'help' to see available commands.");
 			}
 		}
 	}
@@ -65,58 +74,53 @@ public class Main {
 	{
 		String str = "";
 		str += "Available commands are:\n";
-		str += "\thelp -- prints this thing\n";
-		str += "\tsteal file.torrent -- Downloads the files associated with the torrent file.torrent [Can't have spaces in the file name]\n";
-		str += "\texit -- quits this program (something you'd never think of doing)\n";
+		str += "\tdownload <Torrent File> -- Downloads the files associated with the torrent [NOTE: No spaces in file name]\n";
+		str += "\texit -- Exits the BitRaptor program\n";
 		
 		System.out.println(str);
 	}
 	
 	/**
-		Helper function for the "steal" command used by main().
-		Assumes that f != null.  If f is null, just returns without doing anything.
+		Helper function for the "download" command used by main().
+		Assumes that file != null.  If file is null, just returns without doing anything.
 		
-		@param f - the .torrent file to read from
+		@param file - The torrent file to read from
 	*/
-	private void handleSteal(File f)
+	private void handleDownload (File file)
 	{
-		//Variables detailing the attributes of the torrent and the file to be downloaded
-		String announceUrl = null;
-		List<List> announceLists = new java.util.ArrayList<List>();
-		long creationDate = 0;
-		String comment = null, createdBy = null, encoding = null;
-		SingleFileInfo info = new SingleFileInfo();
-		byte[] infoHash = null; //hash of the info segment
-		
-		if (f == null)
-			return;
-		else if (!f.exists())
+		//Checking if the torrent file exists, is a file, and is readable
+		if (file == null)
 		{
-			System.out.println("Yo, I can't find " + f.getAbsolutePath());
 			return;
 		}
-		else if (!f.isFile())
+		else if (!file.exists())
 		{
-			System.out.println(f.getAbsolutePath() + " ain't no file.");
+			System.out.println("ERROR: " + file.getAbsolutePath() + " does not exist.");
 			return;
 		}
-		else if (!f.canRead())
+		else if (!file.isFile())
 		{
-			System.out.println("Yeah, um I can't read " + f.getAbsolutePath() + " (check permissions?) ");
+			System.out.println("ERROR: " + file.getAbsolutePath() + " is not a valid file.");
+			return;
+		}
+		else if (!file.canRead())
+		{
+			System.out.println("ERROR: " + file.getAbsolutePath() + " is not open for read access.");
 			return;
 		}
 		
-		/* Begin parsing the torrent file */
+		//Begin parsing the torrent file
 		BDecoder decoder = null;
 		BEValue value = null;
+		Info info = new Info();
+		
 		try
 		{
-			decoder = new BDecoder(new FileInputStream(f));
+			decoder = new BDecoder(new FileInputStream(file));
 		}
-		catch (java.io.FileNotFoundException e) //should never happen since f exists and is readable
+		catch (java.io.FileNotFoundException e)
 		{
-			System.out.println("Ok so this error shouldn't have happened.  I screwed up.  Are you sure some other process didn't delete the file in the past few microseconds?");
-			System.out.println(e);
+			System.out.println("ERROR: " + file.getAbsolutePath() + " does not exist.");
 			return;
 		}
 		
@@ -125,158 +129,116 @@ public class Main {
 			Map<String, BEValue> torrentFileMappings = decoder.bdecode().getMap();
 			Set<String> fields = torrentFileMappings.keySet();
 			
-			for (String field : fields) //handle each field
+			//Handling each field in the file
+			for (String field : fields)
 			{
+				//Info
 				if (field.equalsIgnoreCase("info"))
 				{
 					Map<String, BEValue> infoDictionary = torrentFileMappings.get(field).getMap();
+					
+					//Piece Length
 					info.pieceLength = infoDictionary.get("piece length").getInt();
 					
+					//Private
 					if (infoDictionary.containsKey("private"))
 						info.privateTorrent = (infoDictionary.get("private").getInt() == 1) ? true : false;
 					else
 						info.privateTorrent = false;
 						
+					//Pieces
 					info.pieces = infoDictionary.get("pieces").getBytes();;
 					
+					//Name
 					info.name = new String(infoDictionary.get("name").getBytes());
+					
+					//Length
 					info.fileLength = infoDictionary.get("length").getInt();
 					
+					//MD5 Checksum
 					if (infoDictionary.containsKey("md5sum"))
 						info.md5sum = infoDictionary.get("md5sum").getBytes();
-
-					infoHash = decoder.get_special_map_digest();
+						
+					//Hash of 'info' field
+					info.infoHash = decoder.get_special_map_digest();
 					
 				}
+				//Announce
 				else if (field.equalsIgnoreCase("announce"))
 				{
-					announceUrl = new String(torrentFileMappings.get(field).getBytes());
+					info.announceUrl = new URL(new String(torrentFileMappings.get(field).getBytes()));
 				}
+				//Announce List
 				else if (field.equalsIgnoreCase("announce-list"))
 				{
-					//while(decoder.getNextIndicator() != 'l')
-					//	announceLists.add(decoder.bdecode().getList());
-					throw new Exception("Need to implement announce-list");
+					//TODO: Add support for announce list
 				}
-				else if (field.equalsIgnoreCase("creation-date"))
-					creationDate = torrentFileMappings.get(field).getLong();
+				//Creation Date
+				else if (field.equalsIgnoreCase("creation date"))
+				{
+					info.creationDate = torrentFileMappings.get(field).getLong();
+				}
+				//Comment
 				else if (field.equalsIgnoreCase("comment"))
-					comment = new String(torrentFileMappings.get(field).getBytes());
-				else if (field.equalsIgnoreCase("created-by"))
-					createdBy = new String(torrentFileMappings.get(field).getBytes());
+				{
+					info.comment = new String(torrentFileMappings.get(field).getBytes());
+				}
+				//Created-By
+				else if (field.equalsIgnoreCase("created by"))
+				{
+					info.createdBy = new String(torrentFileMappings.get(field).getBytes());
+				}
+				//Encoding
 				else if (field.equalsIgnoreCase("encoding"))
-					encoding = new String(torrentFileMappings.get(field).getBytes());
-				else
-					;//throw new InvalidBEncodingException("unknown field: " + field); //don't throw this because apparently torrent files have fields
-																						//not specified in the official docs
-				
+				{
+					info.encoding = new String(torrentFileMappings.get(field).getBytes());
+				}
 			}
 		}
 		catch (Exception e)
 		{
-			System.out.println("The torrent file is improperly constructed...just like yo mama");
-			e.printStackTrace();
+			System.out.println("ERROR: Invalid torrent file");
 			return;
 		}
-		/* End parsing the torrent file */
-		System.out.println("announceurl : " + announceUrl);
-		System.out.println("announceurl-lists : " + announceLists.toString());
-		System.out.println("Torrent created by " + createdBy + " on " + creationDate +" with encoding " + encoding);
-		System.out.println("Comments: " + comment);
 		
-		System.out.println("info:");
-		System.out.println("piece length : " + info.pieceLength);
-		System.out.println("Is private? " + info.privateTorrent);
-		System.out.print("File name: " + info.name + "(" + info.fileLength + " bytes)");
+		////////////////////////////////////////////////////////////////
+		////////////////////////////////////////////////////////////////
+		System.out.println("AnnounceURL : " + info.announceUrl);
+		System.out.println("AnnounceURL-Lists : " + info.announceLists.toString());
+		System.out.println("Torrent Created By " + info.createdBy + " on " + info.creationDate +" with encoding " + info.encoding);
+		System.out.println("Comments: " + info.comment);
+		System.out.println("Info:");
+		System.out.println("\tPiece Length : " + info.pieceLength);
+		System.out.println("\tPrivate: " + info.privateTorrent);
+		System.out.print("\tFile Name: " + info.name + "(" + info.fileLength + " bytes)");
 		if (info.md5sum == null)
-			System.out.println(" with no md5sum");
+		{
+			System.out.println(" with NO md5sum");
+		}
 		else
+		{
 			System.out.println(" with md5sum " + info.md5sum);
-		System.out.println("Have hashes for " + info.pieces.length + " pieces");
-		System.out.println("Info hash: " + infoHash);
-		//Now connect to the tracker and get a list of peers
-		byte [] peerID = new byte[20];
-		new Random().nextBytes(peerID);
-		System.out.println("Tracker response:");
-		
-		try
-		{
-			System.out.println(announce(new URL(announceUrl), infoHash, peerID, 6881, 0, 0, info.fileLength, AnnounceEvent.STARTED));
 		}
-		catch (MalformedURLException e1)
+		System.out.println("\tHashes for " + info.pieces.length + " pieces");
+		System.out.println("\tInfo hash: " + info.infoHash);
+		////////////////////////////////////////////////////////////////
+		////////////////////////////////////////////////////////////////
+		
+		//TODO: Starting a new thread for the torrent
+		/*
+		new Thread(new Runnable()
 		{
-			System.out.println("Tracker url is malformed.");
-			return;
-		}
-		catch (IOException e2)
-		{
-			System.out.println("I think the tracker is out for lunch");
-			return;
-		}
-		catch (IndexOutOfBoundsException e3)
-		{
-			System.out.println("Damn, I think the hash is screwed up, so you're pretty much fucked.  Get a new torrent file");
-			return;
-		}
+			public void run()
+			{
+				Torrent torrent = new Torrent(info, 6881);
+				
+				torrent.start();
+			}
+		}).start();
+		*/
 		
-	}
-	
-	/**
-		Announces the torrent information to the tracker and returns the tracker response.
-		@param infoHash	SHA-1 hash of the info metadata in the torrent. Must be 20 bytes.
-		@param peerID	A 20-byte unique identifier.  No restrictions on what this is
-		@param port	The port number that the client is listening on. Typically in the range 6881-6889
-		@param uploaded	The number of bytes uploaded by this client during this session
-		@param downloaded	The number of bytes downloaded by this client during this session
-		@param left	Number of bytes that the client needs to download
-		@param event	Indicates the status of the connection
-		@return The response of the tracker or null on error.
-		@throws IOException	IOException thrown if unable to contact or read from server
-		@throws IndexOutOfBoundsException	Thrown if the hash or peerID are not of sufficient length
-	*/
-	private String announce(URL announceUrl, byte[] infoHash, byte[] peerID, int port, 
-		int uploaded, int downloaded, int left, AnnounceEvent event) throws IOException, IndexOutOfBoundsException
-	{
-		//Matt start working here
-		URLConnection trackerUrl = announceUrl.openConnection();
-		
-		BufferedWriter trackerWriter;
-		BufferedReader trackerReader;
-		
-		if (infoHash.length != 20)
-			throw new IndexOutOfBoundsException("hash length not 20 bytes");
-		if (peerID.length != 20)
-			throw new IndexOutOfBoundsException("peerID length not 20 bytes");
-			
-		trackerWriter = new BufferedWriter(new OutputStreamWriter(trackerUrl.getOutputStream()));
-		trackerReader = new BufferedReader(new InputStreamReader(trackerUrl.getInputStream()));
-		
-		String request = "GET " + announceUrl.getProtocol() + "://" +  announceUrl.getHost() + announceUrl.getPath() + "HTTP/1.1\r\n";
-		
-		System.out.println("Request is: " + request);
-		
-		return null;//shouldn't be returning null, just to make compiler stfu
-		
-	}
-	
-	private class Info
-	{
-		int pieceLength;
-		byte [] pieces;
-		boolean privateTorrent;
-	}
-	
-	private class SingleFileInfo extends Info
-	{
-		String name;
-		int fileLength;
-		byte md5sum[];
-	}
-	
-	private enum AnnounceEvent {
-		STARTED,
-		STOPPED,
-		COMPLETED,
-		NONE
+		Torrent torrent = new Torrent(info, 6881);
+		torrent.start();
+
 	}
 }
