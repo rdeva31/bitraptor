@@ -48,13 +48,13 @@ public class Torrent
 	public String announce() throws IOException, IndexOutOfBoundsException
 	{
 		//Checking for valid info hash and peer ID
-		if (info.infoHash.length != 20)
+		if (info.getInfoHash().length != 20)
 		{
 			throw new IndexOutOfBoundsException("Hash length is not 20 bytes");
 		}
 		
 		//Initializing the connection
-		URLConnection tracker = info.announceUrl.openConnection();
+		URLConnection tracker = info.getAnnounceUrls().get(0).openConnection();
 		tracker.setDoOutput(true);
 		
 		BufferedWriter trackerWriter = new BufferedWriter(new OutputStreamWriter(tracker.getOutputStream()));
@@ -62,9 +62,11 @@ public class Torrent
 		
 		//Creating the request and sending it to the tracker
 		//TODO: Set up event enum for started, stopped, completed. Or just a string. W.e
-		trackerWriter.write(URLEncoder.encode("info_hash=" + (new String(info.infoHash)) + "&peer_id=" + (new String(peerID)) + "&port=" + port +
-							 "&uploaded=0&downloaded=0&left=" + info.fileLength + "&compact=0no_peer_id=0" +
-							 "&event=started","UTF-8"));
+		//TODO: make sure you account for both single file and multifile modes here
+		//I commented this out so I can compile other shit
+		//trackerWriter.write(URLEncoder.encode("info_hash=" + (new String(info.getInfoHash()))) + "&peer_id=" + (new String(peerID)) + "&port=" + port +
+		//					 "&uploaded=0&downloaded=0&left=" + info.getFileLength() + "&compact=0no_peer_id=0" +
+		//					 "&event=started","UTF-8"));
 							 
 		trackerWriter.close();
 		trackerReader.close();
