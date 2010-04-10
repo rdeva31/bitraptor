@@ -17,7 +17,6 @@ public abstract class Info
 	public Info()
 	{
 
-
 	}
 
 	public Info(Info toCopy)
@@ -32,77 +31,97 @@ public abstract class Info
 		this.privateTorrent = toCopy.privateTorrent;
 	}
 
-	public List<URL> getAnnounceUrls() {
+	public List<URL> getAnnounceUrls()
+	{
 		return announceUrls;
 	}
 
-	public void setAnnounceUrls(List<URL> announceUrls) {
+	public void setAnnounceUrls(List<URL> announceUrls)
+	{
 		this.announceUrls = announceUrls;
 	}
 
-	public String getComment() {
+	public String getComment()
+	{
 		return comment;
 	}
 
-	public void setComment(String comment) {
+	public void setComment(String comment)
+	{
 		this.comment = comment;
 	}
 
-	public String getCreatedBy() {
+	public String getCreatedBy()
+	{
 		return createdBy;
 	}
 
-	public void setCreatedBy(String createdBy) {
+	public void setCreatedBy(String createdBy)
+	{
 		this.createdBy = createdBy;
 	}
 
-	public long getCreationDate() {
+	public long getCreationDate()
+	{
 		return creationDate;
 	}
 
-	public void setCreationDate(long creationDate) {
+	public void setCreationDate(long creationDate)
+	{
 		this.creationDate = creationDate;
 	}
 
-	public String getEncoding() {
+	public String getEncoding()
+	{
 		return encoding;
 	}
 
-	public void setEncoding(String encoding) {
+	public void setEncoding(String encoding)
+	{
 		this.encoding = encoding;
 	}
 
-	public byte[] getInfoHash() {
+	public byte[] getInfoHash()
+	{
 		return infoHash;
 	}
 
-	public void setInfoHash(byte[] infoHash) {
+	public void setInfoHash(byte[] infoHash)
+	{
 		this.infoHash = Arrays.copyOf(infoHash, infoHash.length);
 	}
 
-	public int getPieceLength() {
+	public int getPieceLength()
+	{
 		return pieceLength;
 	}
 
-	public void setPieceLength(int pieceLength) {
+	public void setPieceLength(int pieceLength)
+	{
 		this.pieceLength = pieceLength;
 	}
 
-	public byte[] getPieces() {
+	public byte[] getPieces()
+	{
 		return pieces;
 	}
 
-	public void setPieces(byte[] pieces) {
+	public void setPieces(byte[] pieces)
+	{
 		this.pieces = Arrays.copyOf(pieces, pieces.length);
 	}
 
-	public boolean isPrivateTorrent() {
+	public boolean isPrivateTorrent()
+	{
 		return privateTorrent;
 	}
 
-	public void setPrivateTorrent(boolean privateTorrent) {
+	public void setPrivateTorrent(boolean privateTorrent)
+	{
 		this.privateTorrent = privateTorrent;
 	}
+	
+	public abstract int getFileLength();
 
 	@Override
 	public String toString()
@@ -116,7 +135,6 @@ public abstract class Info
 				"; piece size: " + pieceLength +
 				"; private torrent: " + privateTorrent +
 				"; # of pieces : " + pieces.length;
-				
 	}
 	
 	

@@ -8,8 +8,9 @@ import java.util.List;
  */
 public class MultiFileInfo extends Info
 {
-	private String directory = null; //directory name to store all files in
+	private String directory = null; //Directory name to store all files in
 	private List<SingleFileInfo> files = null;
+	private int fileLength = 0; 	//File size
 
 	public MultiFileInfo()
 	{
@@ -26,13 +27,20 @@ public class MultiFileInfo extends Info
 		directory = toCopy.directory;
 		files = new ArrayList<SingleFileInfo>();
 		files.addAll(toCopy.files);
+		
+		for (SingleFileInfo file : files)
+		{
+			fileLength += file.getFileLength();
+		}
 	}
 
-	public String getDirectory() {
+	public String getDirectory()
+	{
 		return directory;
 	}
 
-	public void setDirectory(String directory) {
+	public void setDirectory(String directory)
+	{
 		this.directory = directory;
 	}
 
@@ -43,34 +51,56 @@ public class MultiFileInfo extends Info
 	 * System.out.println(getDirectory() + "/" + f.getName() + " is the location of file");
 	 * @return all files relative to the current directory
 	 */
-	public List<SingleFileInfo> getFiles() {
+	public List<SingleFileInfo> getFiles()
+	{
 		return files;
 	}
 
-	public void setFiles(List<SingleFileInfo> files) {
+	public void setFiles(List<SingleFileInfo> files)
+	{
 		this.files = files;
+		fileLength = 0;
+		
+		if (files != null)
+		{
+			for (SingleFileInfo file : files)
+			{
+				fileLength += file.getFileLength();
+			}
+		}
+	}
+	
+	public int getFileLength()
+	{
+		return fileLength;
 	}
 
 	@Override
-	public boolean equals(Object obj) {
-		if (obj == null) {
+	public boolean equals(Object obj)
+	{
+		if (obj == null)
+		{
 			return false;
 		}
-		if (getClass() != obj.getClass()) {
+		if (getClass() != obj.getClass())
+		{
 			return false;
 		}
 		final MultiFileInfo other = (MultiFileInfo) obj;
-		if ((this.directory == null) ? (other.directory != null) : !this.directory.equals(other.directory)) {
+		if ((this.directory == null) ? (other.directory != null) : !this.directory.equals(other.directory))
+		{
 			return false;
 		}
-		if (this.files != other.files && (this.files == null || !this.files.equals(other.files))) {
+		if (this.files != other.files && (this.files == null || !this.files.equals(other.files)))
+		{
 			return false;
 		}
 		return true;
 	}
 
 	@Override
-	public int hashCode() {
+	public int hashCode()
+	{
 		int hash = 3;
 		hash = 73 * hash + (this.directory != null ? this.directory.hashCode() : 0);
 		return hash;

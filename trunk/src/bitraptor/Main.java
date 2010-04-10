@@ -11,7 +11,7 @@ public class Main {
 		Starts the BitRaptor program.  No arguments required.
 	 */
 	public static void main(String[] args) {
-		System.out.println("BitRaptor -- Makes your penis longer");
+		System.out.println("BitLaptor -- Makes Japanese people run for their lives... Godzilla all over again");
 		System.out.println("(Type 'help' to see available commands)");
 		
 		BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
@@ -118,7 +118,7 @@ public class Main {
 		{
 			decoder = new BDecoder(new FileInputStream(file));
 		}
-		catch (java.io.FileNotFoundException e)
+		catch (FileNotFoundException e)
 		{
 			System.out.println("ERROR: " + file.getAbsolutePath() + " does not exist.");
 			return;
@@ -138,7 +138,8 @@ public class Main {
 					
 					Map<String, BEValue> infoDictionary = torrentFileMappings.get(field).getMap();
 
-					if (infoDictionary.containsKey("files")) //multiple files mode
+					//Multiple Files Mode
+					if (infoDictionary.containsKey("files"))
 					{
 						info = new MultiFileInfo(info);
 						MultiFileInfo infoAlias = (MultiFileInfo)info;
@@ -152,11 +153,11 @@ public class Main {
 							Map<String, BEValue> fileDictionaryMap = fileDictionary.getMap();
 							SingleFileInfo fileInfo = new SingleFileInfo();
 
-							//name and path
+							//Name and path
 							List<BEValue> paths = fileDictionaryMap.get("path").getList();
 							String filePath = null;
 							
-							for (int c = 0; c < paths.size(); ++c)
+							for (int c = 0; c < paths.size(); c++)
 							{
 								if (c == 0)
 									filePath = new String(paths.get(c).getBytes());
@@ -167,19 +168,22 @@ public class Main {
 							fileInfo.setName(filePath);
 
 
-							//file size
+							//File size
 							fileInfo.setFileLength(fileDictionaryMap.get("length").getInt());
 
-							//md5sum of file
+							//MD5 checksum
 							if (fileDictionaryMap.containsKey("md5sum"))
+							{
 								fileInfo.setMd5sum(fileDictionaryMap.get("md5sum").getBytes());
+							}
 
-							//add to file to directory
+							//Adding the file to the directory
 							infoAlias.getFiles().add(fileInfo);
 						}
 						
 					}
-					else if (infoDictionary.containsKey("length"))	//single file mode
+					//Single File Mode
+					else if (infoDictionary.containsKey("length"))
 					{
 						info = new SingleFileInfo(info);
 						SingleFileInfo infoAlias = (SingleFileInfo)info;
@@ -193,7 +197,9 @@ public class Main {
 
 						//MD5 Checksum
 						if (infoDictionary.containsKey("md5sum"))
+						{
 							infoAlias.setMd5sum(infoDictionary.get("md5sum").getBytes());
+						}
 
 					}
 					else
@@ -202,25 +208,32 @@ public class Main {
 					//Hash of 'info' field
 					info.setInfoHash(decoder.get_special_map_digest());
 
-					//These are common to both SingleFileInfo and MultifileInfo
+					//Pieces
+					info.setPieces(infoDictionary.get("pieces").getBytes());
+
 					//Piece Length
 					info.setPieceLength(infoDictionary.get("piece length").getInt());
 
-					//Privateinfo.announceUrl
+					//Private
 					if (infoDictionary.containsKey("private"))
+					{
 						info.setPrivateTorrent((infoDictionary.get("private").getInt() == 1) ? true : false);
+					}
 					else
+					{
 						info.setPrivateTorrent(false);
-
-					//Pieces
-					info.setPieces(infoDictionary.get("pieces").getBytes());
+					}
 				}
 				//Announce
 				else if (field.equalsIgnoreCase("announce"))
 				{
 					if (info.getAnnounceUrls() == null)
+					{
 						info.setAnnounceUrls(new ArrayList<URL>());
-					info.getAnnounceUrls().add(0, new URL(new String(torrentFileMappings.get(field).getBytes()))); //always want announce URL to be top choice
+					}
+					
+					//'Announce' URL is top priority URL in the list
+					info.getAnnounceUrls().add(0, new URL(new String(torrentFileMappings.get(field).getBytes())));
 				}
 				//Announce List
 				else if (field.equalsIgnoreCase("announce-list"))
@@ -228,16 +241,21 @@ public class Main {
 					List<BEValue> announceLists = torrentFileMappings.get(field).getList();
 					
 					if (info.getAnnounceUrls() == null)
+					{
 						info.setAnnounceUrls(new ArrayList<URL>());
-						
+					}
+					
 					for (BEValue b : announceLists)
 					{
 						List<BEValue> l = b.getList(); 
 						for (BEValue announceUrl : l)
 						{
+							//Only working with trackers that are contacted over HTTP
 							URI u = new URI(new String(announceUrl.getBytes()));
 							if (u.getScheme().equalsIgnoreCase("http"))
+							{
 								info.getAnnounceUrls().add(u.toURL());
+							}
 						}
 					}
 				}
@@ -263,6 +281,7 @@ public class Main {
 				}
 			}
 		}
+		//Invalid torrent file (Could not be parsed)
 		catch (Exception e)
 		{
 			System.out.println("ERROR: Invalid torrent file");
@@ -279,17 +298,6 @@ public class Main {
 		System.out.println("\tPiece Length : " + info.getPieceLength());
 		System.out.println("\tPrivate: " + info.isPrivateTorrent());
 		System.out.println(info.toString());
-		//System.out.print("\tFile Name: " + info.name + "(" + info.fileLength + " bytes)");
-//		if (info.getMd5sum() == null)
-//		{
-//			System.out.println(" with NO md5sum");
-//		}
-//		else
-//		{
-//			System.out.println(" with md5sum " + info.ge);
-//		}
-//		System.out.println("\tHashes for " + info.getPieces().length + " pieces");
-//		System.out.println("\tInfo hash: " + info.getInfoHash());
 		////////////////////////////////////////////////////////////////
 		////////////////////////////////////////////////////////////////
 		
