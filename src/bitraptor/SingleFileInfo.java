@@ -33,7 +33,8 @@ public class SingleFileInfo extends Info
 	 * Returns the size of file in bytes
 	 * @return size of file in bytes
 	 */
-	public int getFileLength() {
+	public int getFileLength()
+	{
 		return fileLength;
 	}
 
@@ -41,7 +42,8 @@ public class SingleFileInfo extends Info
 	 * Sets the size of file in bytes
 	 * @param fileLength size of file in bytes
 	 */
-	public void setFileLength(int fileLength) {
+	public void setFileLength(int fileLength)
+	{
 		this.fileLength = fileLength;
 	}
 
@@ -49,7 +51,8 @@ public class SingleFileInfo extends Info
 	 * Returns the given md5sum of file
 	 * @return 20 byte md5sum
 	 */
-	public byte[] getMd5sum() {
+	public byte[] getMd5sum()
+	{
 		return md5sum;
 	}
 
@@ -58,7 +61,8 @@ public class SingleFileInfo extends Info
 	 * @param md5sum md5sum of file
 	 * @return true if operation succeeded; false otherwise
 	 */
-	public boolean setMd5sum(byte[] md5sum) {
+	public boolean setMd5sum(byte[] md5sum)
+	{
 		if (md5sum.length == 20)
 			this.md5sum = Arrays.copyOf(md5sum, md5sum.length);
 		else
@@ -70,7 +74,8 @@ public class SingleFileInfo extends Info
 	 * Gets the name of the file.  File name may contain paths (e.g. ./folder1/folder2/file.txt)
 	 * @return the name and path of file
 	 */
-	public String getName() {
+	public String getName()
+	{
 		return name;
 	}
 
@@ -78,33 +83,41 @@ public class SingleFileInfo extends Info
 	 * Sets the name of file.  File can contain paths.
 	 * @param name path and name of file
 	 */
-	public void setName(String name) {
+	public void setName(String name)
+	{
 		this.name = name;
 	}
 
 	@Override
-	public boolean equals(Object obj) {
-		if (obj == null) {
+	public boolean equals(Object obj)
+	{
+		if (obj == null)
+		{
 			return false;
 		}
-		if (getClass() != obj.getClass()) {
+		if (getClass() != obj.getClass())
+		{
 			return false;
 		}
 		final SingleFileInfo other = (SingleFileInfo) obj;
-		if ((this.name == null) ? (other.name != null) : !this.name.equals(other.name)) {
+		if ((this.name == null) ? (other.name != null) : !this.name.equals(other.name))
+		{
 			return false;
 		}
-		if (this.fileLength != other.fileLength) {
+		if (this.fileLength != other.fileLength)
+		{
 			return false;
 		}
-		if (!Arrays.equals(this.md5sum, other.md5sum)) {
+		if (!Arrays.equals(this.md5sum, other.md5sum))
+		{
 			return false;
 		}
 		return true;
 	}
 
 	@Override
-	public int hashCode() {
+	public int hashCode()
+	{
 		int hash = 7;
 		hash = 29 * hash + Arrays.hashCode(this.md5sum);
 		return hash;

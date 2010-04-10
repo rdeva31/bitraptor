@@ -4,21 +4,58 @@ import java.util.Arrays;
 
 public class Peer
 {
-	private boolean choked, interested;
-	private byte[] ipAddr;
+	private String peerID;
+	private String IPAddr;
 	private int port;
+	private boolean choked, interested;
 
-
-	
-	public Peer(byte[] name, int port)
+	public Peer(String IPAddr, int port)
 	{
-		this(name, port, false, false);
+		this("", IPAddr, port, false, false);
 	}
 	
-	public Peer(byte[] name, int port, boolean choked, boolean interested)
+	public Peer(String peerID, String IPAddr, int port)
 	{
+		this(peerID, IPAddr, port, false, false);
+	}
+	
+	public Peer(String peerID, String IPAddr, int port, boolean choked, boolean interested)
+	{
+		this.peerID = peerID;
+		this.IPAddr = IPAddr;
+		this.port = port;
 		this.choked = choked;
 		this.interested = interested;
+	}
+	
+	public String getPeerID()
+	{
+		return peerID;
+	}
+
+	public void setPeerID(String peerID)
+	{
+		this.peerID = peerID;
+	}
+	
+	public String getIPAddr()
+	{
+		return IPAddr;
+	}
+
+	public void setIPAddr(String IPAddr)
+	{
+		this.IPAddr = IPAddr;
+	}
+
+	public int getPort()
+	{
+		return port;
+	}
+
+	public void setPort(int port)
+	{
+		this.port = port;
 	}
 	
 	public void setChoked(boolean choked)
@@ -40,51 +77,39 @@ public class Peer
 	{
 		return interested;
 	}
-	
-	public byte[] getIpAddr() {
-		return ipAddr;
-	}
-
-	public void setIpAddr(byte[] ipAddr) {
-		this.ipAddr = ipAddr;
-	}
-
-	public int getPort() {
-		return port;
-	}
-
-	public void setPort(int port) {
-		this.port = port;
-	}
 
 	@Override
-	public boolean equals(Object obj) {
-		if (obj == null) {
+	public boolean equals(Object obj)
+	{
+		if (obj == null)
+		{
 			return false;
 		}
-		if (getClass() != obj.getClass()) {
+		if (getClass() != obj.getClass())
+		{
 			return false;
 		}
 		final Peer other = (Peer) obj;
-		if (this.choked != other.choked) {
+		if (!this.peerID.equals(other.peerID))
+		{
 			return false;
 		}
-		if (this.interested != other.interested) {
+		if (!this.IPAddr.equals(other.IPAddr))
+		{
 			return false;
 		}
-		if (!Arrays.equals(this.ipAddr, other.ipAddr)) {
-			return false;
-		}
-		if (this.port != other.port) {
+		if (this.port != other.port)
+		{
 			return false;
 		}
 		return true;
 	}
 
 	@Override
-	public int hashCode() {
+	public int hashCode()
+	{
 		int hash = 3;
-		hash = 53 * hash + Arrays.hashCode(this.ipAddr);
+		hash = 53 * hash + Arrays.hashCode(this.IPAddr.getBytes());
 		return hash;
 	}
 
