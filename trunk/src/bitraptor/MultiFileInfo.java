@@ -109,9 +109,9 @@ public class MultiFileInfo extends Info
 	@Override
 	public String toString()
 	{
-		StringBuffer s = new StringBuffer(directory + " with: \n");
+		String s = directory + " with:\n";
 		for (SingleFileInfo f : files)
-				s.append("\t" + f.toString() + " \n");
-		return s.toString();
+				s += "\t" + f.toString() + "\n";
+		return s;
 	}
 }
