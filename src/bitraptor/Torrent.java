@@ -7,11 +7,14 @@ import org.klomp.snark.bencode.*;
 
 public class Torrent
 {
+	private enum State { STARTED, RUNNING, STOPPED, COMPLETED };
+	
 	private Info info = null; 
 	private int port;
 	byte[] peerID;
 	String trackerID = null;
 	private ArrayList<Peer> peers;
+	private State state = State.STARTED;
 	
 	/**
 		Initializes the Torrent based on the information from the file.
@@ -33,8 +36,22 @@ public class Torrent
 		//Creating a random peer ID (BRXXX...)
 		peerID = new byte[20];
 		(new Random()).nextBytes(peerID);
+		
 		peerID[0] = (byte)'B';
 		peerID[1] = (byte)'R';
+		peerID[2] = (byte)'-';
+		
+		//Change the random bytes into numeric characters
+		for (int b = 3; b < 20; b++)
+		{
+			peerID[b] = (byte)(((peerID[b] & 0xFF) % 10) + 48); 
+		}
+		
+		for (int b = 0; b < 20; b++)
+		{
+			System.out.print((char)(peerID[b] & 0xFF));
+		}
+		System.out.println("");
 	}
 	
 	/**
@@ -124,14 +141,20 @@ public class Torrent
 			byte[] response = null;
 		
 			//Going through all the announce URLs (if needed)
-	      		for(URL announceURL : info.getAnnounceUrls())
+	      		for (URL announceURL : info.getAnnounceUrls())
 	      		{
 				//Setting up the query URL
 				String query = "?info_hash=" + encode(info.getInfoHash()) + "&peer_id=" + encode(peerID) + "&port=" + port + 
-				"&uploaded=0&downloaded=0&left=" + info.getFileLength() + "&compact=0&no_peer_id=0&event=started";
+				"&uploaded=0&downloaded=0&left=" + info.getFileLength() + "&compact=0&no_peer_id=0";
+				
+				//Including event if not in RUNNING state
+				if (state != State.RUNNING)
+				{
+					query += "&event=" + state.toString().toLowerCase();
+				}
 			
-				//Including the tracker ID if it was set by the tracker previously
-				if(trackerID != null)
+				//Including tracker ID if it was set by the tracker previously
+				if (trackerID != null)
 				{
 					query += "&trackerid=" + trackerID;
 				}
@@ -151,7 +174,7 @@ public class Torrent
 					int totalBytesRead = 0;
 					int bytesRead = 0;
 				
-					while((bytesRead = connRead.read(response, totalBytesRead, 256)) != -1)
+					while ((bytesRead = connRead.read(response, totalBytesRead, 256)) != -1)
 					{
 						totalBytesRead += bytesRead;
 						
@@ -210,7 +233,7 @@ public class Torrent
 				int leechers = replyDictionary.get("incomplete").getInt();
 				
 				//Tracker ID is an optional field
-				if(replyDictionary.containsKey("tracker id"))
+				if (replyDictionary.containsKey("tracker id"))
 				{
 					trackerID = new String(replyDictionary.get("tracker id").getBytes());
 				}
@@ -253,7 +276,7 @@ public class Torrent
 				schedule(interval);
 			}
 			//Invalid response from the tracker (Could not be parsed)
-			catch(Exception e)
+			catch (Exception e)
 			{
 				System.out.println("ERROR: Received an invalid response from the tracker");
 				System.out.println("Will retry in 30 seconds...");

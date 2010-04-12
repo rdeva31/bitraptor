@@ -7,26 +7,31 @@ public class Peer
 	private String peerID;
 	private String IPAddr;
 	private int port;
-	private boolean choked, interested;
+	private boolean meChoking, meInterested;
+	private boolean peerChoking, peerInterested;
 
 	public Peer(String IPAddr, int port)
 	{
-		this("", IPAddr, port, false, false);
+		this("", IPAddr, port, true, false, true, false);
 	}
 	
 	public Peer(String peerID, String IPAddr, int port)
 	{
-		this(peerID, IPAddr, port, false, false);
+		this(peerID, IPAddr, port, true, false, true, false);
 	}
 	
-	public Peer(String peerID, String IPAddr, int port, boolean choked, boolean interested)
+	public Peer(String peerID, String IPAddr, int port, boolean meChoking, boolean meInterested, boolean peerChoking, boolean peerInterested)
 	{
 		this.peerID = peerID;
 		this.IPAddr = IPAddr;
 		this.port = port;
-		this.choked = choked;
-		this.interested = interested;
+		this.meChoking = meChoking;
+		this.meInterested = meInterested;
+		this.peerChoking = peerChoking;
+		this.peerInterested = peerInterested;
 	}
+	
+	
 	
 	public String getPeerID()
 	{
@@ -58,24 +63,44 @@ public class Peer
 		this.port = port;
 	}
 	
-	public void setChoked(boolean choked)
+	public void setChoking(boolean choking)
 	{
-		this.choked = choked;
+		meChoking = choking;
 	}
 	
 	public void setInterested(boolean interested)
 	{
-		this.interested = interested;
+		meInterested = interested;
 	}
 	
-	public boolean isChoked()
+	public boolean isChoking()
 	{
-		return choked;
+		return meChoking;
 	}
 	
 	public boolean isInterested()
 	{
-		return interested;
+		return meInterested;
+	}
+	
+	public void setPeerChoking(boolean choking)
+	{
+		peerChoking = choking;
+	}
+	
+	public void setPeerInterested(boolean interested)
+	{
+		peerInterested = interested;
+	}
+	
+	public boolean isPeerChoking()
+	{
+		return peerChoking;
+	}
+	
+	public boolean isPeerInterested()
+	{
+		return peerInterested;
 	}
 
 	@Override
