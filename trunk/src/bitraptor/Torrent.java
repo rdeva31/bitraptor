@@ -3,18 +3,25 @@ package bitraptor;
 import java.util.*;
 import java.net.*;
 import java.io.*;
+import java.nio.*;
+import java.nio.channels.*;
 import org.klomp.snark.bencode.*;
 
 public class Torrent
 {
 	private enum State { STARTED, RUNNING, STOPPED, COMPLETED };
 	
+	private static byte[] protocolName = {'B', 'i', 't', 'T', 'o', 'r', 'r', 'e', 'n', 't', ' ', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
+	
 	private Info info = null; 
 	private int port;
-	byte[] peerID;
-	String trackerID = null;
+	private byte[] peerID;
+	private String trackerID = null;
+	private Selector handshakeSelect;
+	private Selector select;
 	private ArrayList<Peer> peers;
 	private State state = State.STARTED;
+	private ByteBuffer handshakeMsg;
 	
 	/**
 		Initializes the Torrent based on the information from the file.
@@ -26,6 +33,8 @@ public class Torrent
 		this.port = port;
 		this.info = info;
 		
+		peers = new ArrayList<Peer>();
+	
 		//Creating a random peer ID (BRXXX...)
 		peerID = new byte[20];
 		(new Random()).nextBytes(peerID);
@@ -39,6 +48,21 @@ public class Torrent
 		{
 			peerID[b] = (byte)(((peerID[b] & 0xFF) % 10) + 48); 
 		}
+		
+		//Creating the handshake message
+		handshakeMsg = ByteBuffer.allocateDirect(68);
+		handshakeMsg.put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
+		
+		//Setting up selectors
+		try
+		{
+			handshakeSelect = Selector.open();
+			select = Selector.open();
+		}
+		catch (Exception e)
+		{
+			System.out.println("ERROR: Could not open selectors for use in torrent");
+		}
 	}
 	
 	/**
@@ -46,10 +70,7 @@ public class Torrent
 	*/
 	public void start()
 	{
-		//Initializing peers list
-		peers = new ArrayList<Peer>();
-	
-		//Starting up the announcer, and contacting the tracker for the first time
+		//Starting up the announcer (runs immediately and then schedules a next run)
 		(new TorrentAnnouncer(this)).run();
 		
 		//TODO: OTHER STUFF???
@@ -62,26 +83,42 @@ public class Torrent
 	}
 		
 	/**
-		Attempts to connect to the peer, and if successful (or incoming peer), adds it to the list of peers
+		Attempts to connect to the peer, and if not an incoming peer, perform a handshake with it before 
+		adding it to the list of peers
 	
 		@param peer The peer to add
 	*/
-	public void addPeer(Peer peer)
+	public void addPeer(Peer peer, boolean incoming)
 	{
 		//Making sure that the peer is not already in the list
 		if (!peers.contains(peer))
 		{
-			//Attempt to start a TCP connection to the peer, and send the handshake
 			try
 			{
+				//Connect to the peer via TCP
 				peer.connect();
+				
+				//Sending a handshake message to the peer [[[TODO: ADD QUEUES]]]
+				//peer.write(handshakeMsg);
+				//handshakeMsg.position(0);
+				
+				//Incoming Peer: Already received a valid handshake, so place it in main selector with handshake message in its write queue
+				if (incoming)
+				{
+				
+				}
+				//Outgoing Peer: Waiting on valid handshake, so place it in handshake selector with handshake message in its write queue
+				else
+				{
+				
+				}
 			}
 			catch (IOException e)
 			{
 				return;
 			}
 			
-			//Adding the connected peer to the list
+			//Adding the peer to the list
 			peers.add(peer);
 			
 			System.out.println("[PEER] " + peer.getSockAddr());
@@ -250,7 +287,7 @@ public class Torrent
 						String IPAddr = peerDictionaryMap.get("ip").getString();
 						int port = peerDictionaryMap.get("port").getInt();
 						
-						addPeer(new Peer(peerID, IPAddr, port));
+						addPeer(new Peer(peerID, IPAddr, port), false);
 					}
 				}
 				//Getting peer information via binary format
@@ -266,7 +303,7 @@ public class Torrent
 							+ Integer.toString((int)peers[c + 3] & 0xFF);
 						int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
 						
-						addPeer(new Peer(new byte[20], IPAddr, port));
+						addPeer(new Peer(new byte[20], IPAddr, port), false);
 					}
 				}
 				

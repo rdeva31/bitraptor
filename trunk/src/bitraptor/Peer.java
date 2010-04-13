@@ -2,11 +2,15 @@ package bitraptor;
 
 import java.io.*;
 import java.net.*;
+import java.nio.*;
 import java.nio.channels.*;
 import java.util.Arrays;
 
 public class Peer
 {
+	private static byte[] protocolName = {'B', 'i', 't', 'T', 'o', 'r', 'r', 'e', 'n', 't', ' ', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
+	
+	private Info info;
 	private byte[] peerID;
 	private SocketChannel sock;
 	private InetSocketAddress sockAddr;
@@ -52,9 +56,14 @@ public class Peer
 			sock.configureBlocking(false);
 			sock.connect(sockAddr);
 		}
-		
-		//TODO: Sending a handshake message to the peer
-		
+	}
+	
+	public void write(ByteBuffer buffer) throws IOException, ClosedChannelException
+	{
+		while (buffer.hasRemaining())
+		{
+			sock.write(buffer);
+		}
 	}
 	
 	public byte[] getPeerID()

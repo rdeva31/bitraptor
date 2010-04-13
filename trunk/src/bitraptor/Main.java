@@ -24,7 +24,7 @@ public class Main
 		System.out.println("BitRaptor -- PoS in the shape of a raptor");
 		System.out.println("(Type 'help' to see available commands)");
 		
-		buffer = ByteBuffer.allocate(128);
+		buffer = ByteBuffer.allocateDirect(128);
 		
 		//Starting up the main socket server (not blocking) to listen for incoming peers
 		try
@@ -129,6 +129,7 @@ public class Main
 						incSock = (SocketChannel)selected.channel();
 						
 						//Reading from the socket till end of stream or 68 bytes (length of handshake message)
+						buffer.clear();
 						while (incSock.read(buffer) != -1 && buffer.position() < 68)
 						{
 						}
@@ -136,7 +137,6 @@ public class Main
 						//Dropping the connection if invalid message length
 						if (buffer.position() != 68)
 						{
-							buffer.reset();
 							selected.cancel();
 							continue;
 						}
@@ -146,7 +146,6 @@ public class Main
 						//Dropping the connection if invalid name length
 						if (buffer.get() != 19)
 						{
-							buffer.reset();
 							selected.cancel();
 							continue;
 						}
@@ -158,17 +157,13 @@ public class Main
 						{
 							if (protocolName[b] != name[b])
 							{
-								buffer.reset();
 								selected.cancel();
 								continue;
 							}
 						}
 						
 						//Skipping over the next 8 reserved bytes
-						for (int b = 0; b < 8; b++)
-						{
-							buffer.get();
-						}
+						buffer.getDouble();
 						
 						//Getting the info hash and peer ID
 						byte[] infoHash = new byte[20];
@@ -181,7 +176,7 @@ public class Main
 						{
 							//Giving the peer to the torrent to handle
 							selected.cancel();
-							torrents.get(infoHash).addPeer(new Peer(peerID, incSock));
+							torrents.get(infoHash).addPeer(new Peer(peerID, incSock), true);
 						}
 					}
 				}
