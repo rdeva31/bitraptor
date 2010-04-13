@@ -3,66 +3,191 @@ package bitraptor;
 import java.io.*;
 import java.util.*;
 import java.net.*;
+import java.nio.*;
+import java.nio.channels.*;
 import org.klomp.snark.bencode.*;
 
-public class Main {
+public class Main
+{
+	private static byte[] protocolName = {'B', 'i', 't', 'T', 'o', 'r', 'r', 'e', 'n', 't', ' ', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
+	
+	private static ServerSocketChannel sock;
+	private static Selector select;
+	private static HashMap<byte[], Torrent> torrents = new HashMap<byte[], Torrent>();
+	private static ByteBuffer buffer;
 
 	/**
 		Starts the BitRaptor program.  No arguments required.
 	 */
-	public static void main(String[] args) {
-		System.out.println("BitLaptor -- Makes Japanese people run for their lives... Godzilla all over again");
+	public static void main(String[] args)
+	{
+		System.out.println("BitRaptor -- PoS in the shape of a raptor");
 		System.out.println("(Type 'help' to see available commands)");
 		
+		buffer = ByteBuffer.allocate(128);
+		
+		//Starting up the main socket server (not blocking) to listen for incoming peers
+		try
+		{
+			select = Selector.open();
+			sock = ServerSocketChannel.open();
+			sock.configureBlocking(false);
+			sock.socket().bind(new InetSocketAddress(6881)); 
+		}
+		catch (Exception e)
+		{
+			sock = null;
+			
+			System.out.println("ERROR: Could not open up socket server, will not receive incoming connections from peers.");
+		}
+			
+		//Preparing to read user input
 		BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+		String[] command;
+		System.out.print("> ");
+		
+		//Preparing to accept incoming peer connections
+		SocketChannel incSock;
+		
+		//Handling user input and socket server interactions
 		while (true)
 		{
-			String[] command;
-			
-			//Prompting for and reading user input
-			System.out.print("> ");
-			
+			//Process any new user input
 			try
 			{
-				command = in.readLine().trim().split(" ");
+				if (in.ready())
+				{
+					//Executing the specified command
+					command = in.readLine().trim().split(" ");
+			
+					//Help
+					if (command[0].equalsIgnoreCase("help"))
+					{
+						(new Main()).handleHelp();
+					}
+					//Exit
+					else if (command[0].equalsIgnoreCase("exit") || command[0].equalsIgnoreCase("quit") || command[0].equalsIgnoreCase("bye"))
+					{
+						return;
+					}
+					//Download
+					else if (command[0].equalsIgnoreCase("download") || command[0].equalsIgnoreCase("dl") || command[0].equalsIgnoreCase("steal"))
+					{
+						//No torrent file specified
+						if (command[1] == null)
+						{
+							System.out.println("Usage: " + command[0] + " <Torrent File>");
+						}
+						else
+						{
+							(new Main()).handleDownload(new File(command[1]));
+						}
+					}
+					//Invalid Command
+					else
+					{
+						System.out.println("Invalid command. Type 'help' to see available commands.");
+					}
+			
+					//Prompting again for user input
+					System.out.print("> ");
+				}
+			}
+			catch (IOException e)
+			{
+			}
+			
+			//Accept any new incoming peer connections
+			try
+			{
+				if (sock != null && (incSock = sock.accept()) != null)
+				{
+					incSock.register(select, SelectionKey.OP_READ);
+					
+					System.out.println("[INC] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
+				}
 			}
 			catch (Exception e)
 			{
-				System.err.println(e);
-				return;
 			}
 			
-			//Executing the specified command
-			if (command[0].equalsIgnoreCase("help"))
+			//Accept handshakes on any incoming peer connections
+			try
 			{
-				new Main().handleHelp();
-			}
-			else if (command[0].equalsIgnoreCase("exit"))
-			{
-				return;
-			}
-			else if (command[0].equalsIgnoreCase("download") || command[0].equalsIgnoreCase("dl") ||
-				command[0].equalsIgnoreCase("steal"))
-			{
-				try
+				//Performing the select
+				select.selectNow();
+				Iterator selectedIter = select.selectedKeys().iterator();
+				
+				while (selectedIter.hasNext())
 				{
-					//No torrent file specified
-					if (command[1] == null)
+					SelectionKey selected = (SelectionKey)selectedIter.next(); 
+					selectedIter.remove();
+					
+					//Handling the read
+					if (selected.isReadable())
 					{
-						throw new IndexOutOfBoundsException();
+						incSock = (SocketChannel)selected.channel();
+						
+						//Reading from the socket till end of stream or 68 bytes (length of handshake message)
+						while (incSock.read(buffer) != -1 && buffer.position() < 68)
+						{
+						}
+						
+						//Dropping the connection if invalid message length
+						if (buffer.position() != 68)
+						{
+							buffer.reset();
+							selected.cancel();
+							continue;
+						}
+						
+						buffer.flip();
+						
+						//Dropping the connection if invalid name length
+						if (buffer.get() != 19)
+						{
+							buffer.reset();
+							selected.cancel();
+							continue;
+						}
+						
+						//Dropping the connection if invalid protocol name
+						byte[] name = new byte[19];
+						buffer.get(name);
+						for (int b = 0; b < 19; b++)
+						{
+							if (protocolName[b] != name[b])
+							{
+								buffer.reset();
+								selected.cancel();
+								continue;
+							}
+						}
+						
+						//Skipping over the next 8 reserved bytes
+						for (int b = 0; b < 8; b++)
+						{
+							buffer.get();
+						}
+						
+						//Getting the info hash and peer ID
+						byte[] infoHash = new byte[20];
+						byte[] peerID = new byte[20];
+						buffer.get(infoHash);
+						buffer.get(peerID);
+						
+						//Checking to make sure a current torrent matches it
+						if (torrents.containsKey(infoHash))
+						{
+							//Giving the peer to the torrent to handle
+							selected.cancel();
+							torrents.get(infoHash).addPeer(new Peer(peerID, incSock));
+						}
 					}
 				}
-				catch (IndexOutOfBoundsException e)
-				{
-					System.out.println("Specify the torrent file");
-					continue;
-				}
-				
-				new Main().handleDownload(new File(command[1]));
 			}
-			else
+			catch (Exception e)
 			{
-				System.out.println("Invalid command. Type 'help' to see available commands.");
 			}
 		}
 	}
@@ -308,6 +433,8 @@ public class Main {
 			public void run()
 			{
 				Torrent torrent = new Torrent(info, 6881);
+		
+				torrents.put(info.getInfoHash(), torrent);
 				
 				torrent.start();
 			}
@@ -315,6 +442,9 @@ public class Main {
 		*/
 		
 		Torrent torrent = new Torrent(info, 6881);
+		
+		torrents.put(info.getInfoHash(), torrent);
+		
 		torrent.start();
 
 	}

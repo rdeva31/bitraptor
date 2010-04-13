@@ -1,66 +1,71 @@
 package bitraptor;
 
+import java.io.*;
+import java.net.*;
+import java.nio.channels.*;
 import java.util.Arrays;
 
 public class Peer
 {
-	private String peerID;
-	private String IPAddr;
-	private int port;
+	private byte[] peerID;
+	private SocketChannel sock;
+	private InetSocketAddress sockAddr;
 	private boolean meChoking, meInterested;
 	private boolean peerChoking, peerInterested;
-
-	public Peer(String IPAddr, int port)
-	{
-		this("", IPAddr, port, true, false, true, false);
-	}
 	
-	public Peer(String peerID, String IPAddr, int port)
-	{
-		this(peerID, IPAddr, port, true, false, true, false);
-	}
-	
-	public Peer(String peerID, String IPAddr, int port, boolean meChoking, boolean meInterested, boolean peerChoking, boolean peerInterested)
+	public Peer(byte[] peerID, SocketChannel sock)
 	{
 		this.peerID = peerID;
-		this.IPAddr = IPAddr;
-		this.port = port;
-		this.meChoking = meChoking;
-		this.meInterested = meInterested;
-		this.peerChoking = peerChoking;
-		this.peerInterested = peerInterested;
+		this.sock = sock;
+		this.sockAddr = (InetSocketAddress)(sock.socket().getRemoteSocketAddress());
+		this.meChoking = true;
+		this.meInterested = false;
+		this.peerChoking = true;
+		this.peerInterested = false;
 	}
 	
+	public Peer(byte[] peerID, String IPAddr, int port)
+	{
+		this.peerID = peerID;
+		this.sock = null;
+		this.meChoking = true;
+		this.meInterested = false;
+		this.peerChoking = true;
+		this.peerInterested = false;
+		
+		try
+		{
+			sockAddr = new InetSocketAddress(IPAddr, port);
+		}
+		catch (IllegalArgumentException e)
+		{
+			sockAddr = null;
+		}
+	}
 	
+	public void connect() throws IOException
+	{
+		//Setting up the socket connection if necessary
+		if (sock == null)
+		{
+			sock = SocketChannel.open();
+			sock.configureBlocking(false);
+			sock.connect(sockAddr);
+		}
+		
+		//TODO: Sending a handshake message to the peer
+		
+	}
 	
-	public String getPeerID()
+	public byte[] getPeerID()
 	{
 		return peerID;
 	}
-
-	public void setPeerID(String peerID)
-	{
-		this.peerID = peerID;
-	}
 	
-	public String getIPAddr()
+	
+	public InetSocketAddress getSockAddr()
 	{
-		return IPAddr;
-	}
-
-	public void setIPAddr(String IPAddr)
-	{
-		this.IPAddr = IPAddr;
-	}
-
-	public int getPort()
-	{
-		return port;
-	}
-
-	public void setPort(int port)
-	{
-		this.port = port;
+		return sockAddr;
 	}
 	
 	public void setChoking(boolean choking)
@@ -115,15 +120,11 @@ public class Peer
 			return false;
 		}
 		final Peer other = (Peer) obj;
-		if (!this.peerID.equals(other.peerID))
+		if (!peerID.equals(other.peerID))
 		{
 			return false;
 		}
-		if (!this.IPAddr.equals(other.IPAddr))
-		{
-			return false;
-		}
-		if (this.port != other.port)
+		if (sockAddr == null || other.sockAddr == null || !sockAddr.equals(other.sockAddr))
 		{
 			return false;
 		}
@@ -134,7 +135,7 @@ public class Peer
 	public int hashCode()
 	{
 		int hash = 3;
-		hash = 53 * hash + Arrays.hashCode(this.IPAddr.getBytes());
+		hash = 53 * hash + Arrays.hashCode(((InetSocketAddress)sock.socket().getRemoteSocketAddress()).getAddress().getAddress());
 		return hash;
 	}
 
