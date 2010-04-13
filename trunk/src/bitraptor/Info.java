@@ -11,7 +11,7 @@ public abstract class Info
 	private long creationDate = 0;
 	private String comment = null, createdBy = null, encoding = null;
 	private int pieceLength; 		//Size of each piece
-	private byte [] pieces; 		//SHA1 hashes of of pieces
+	private byte [] pieces; 		//SHA1 hashes for each of the pieces
 	private boolean privateTorrent; 	//If true, can obtain peers only via tracker (i.e. can't use DHT etc.)
 
 	public Info()

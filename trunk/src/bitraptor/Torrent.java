@@ -20,16 +20,9 @@ public class Torrent
 		Initializes the Torrent based on the information from the file.
 		
 		@param info Contains torrent characteristics
-		
-		@throws NullPointerException Thrown if info == null
 	*/
-	public Torrent(Info info, int port) throws NullPointerException
+	public Torrent(Info info, int port)
 	{
-		if (info == null)
-		{
-			throw new NullPointerException("Info can't be null");
-		}
-		
 		this.port = port;
 		this.info = info;
 		
@@ -46,12 +39,6 @@ public class Torrent
 		{
 			peerID[b] = (byte)(((peerID[b] & 0xFF) % 10) + 48); 
 		}
-		
-		for (int b = 0; b < 20; b++)
-		{
-			System.out.print((char)(peerID[b] & 0xFF));
-		}
-		System.out.println("");
 	}
 	
 	/**
@@ -62,8 +49,8 @@ public class Torrent
 		//Initializing peers list
 		peers = new ArrayList<Peer>();
 	
-		//Contacting the tracker for the first time
-		(new Timer(false)).schedule(new TorrentAnnouncer(this), 0);
+		//Starting up the announcer, and contacting the tracker for the first time
+		(new TorrentAnnouncer(this)).run();
 		
 		//TODO: OTHER STUFF???
 		//	-Open up output files for writing (Probably best to take care of this in the Info portions, although maybe
@@ -72,6 +59,33 @@ public class Torrent
 		//
 		//	-We may want to schedule other periodic tasks too, to handle upload slot assignments etc...
 		//	(seems like start() may be ALL periodic task initialization haha)
+	}
+		
+	/**
+		Attempts to connect to the peer, and if successful (or incoming peer), adds it to the list of peers
+	
+		@param peer The peer to add
+	*/
+	public void addPeer(Peer peer)
+	{
+		//Making sure that the peer is not already in the list
+		if (!peers.contains(peer))
+		{
+			//Attempt to start a TCP connection to the peer, and send the handshake
+			try
+			{
+				peer.connect();
+			}
+			catch (IOException e)
+			{
+				return;
+			}
+			
+			//Adding the connected peer to the list
+			peers.add(peer);
+			
+			System.out.println("[PEER] " + peer.getSockAddr());
+		}
 	}
 	
 	private class TorrentAnnouncer extends TimerTask
@@ -96,8 +110,7 @@ public class Torrent
 		
 			for (int b = 0; b < data.length; b++)
 			{
-				encoded += "%" + (((data[b] & 0xF0) == 0) ? ("0" + Integer.toHexString(data[b] & 0xFF)) : 
-							Integer.toHexString(data[b] & 0xFF));
+				encoded += "%" + (((data[b] & 0xF0) == 0) ? ("0" + Integer.toHexString(data[b] & 0xFF)) : Integer.toHexString(data[b] & 0xFF));
 			}
 		
 			return encoded;
@@ -114,23 +127,6 @@ public class Torrent
 		}
 		
 		/**
-			Adds a peer to the list of peers if not already present (Tracker may send same peer(s) in different responses)
-		
-			@param peer The peer to add
-		*/
-		private void addPeer(Peer peer)
-		{
-			if (!peers.contains(peer))
-			{
-				peers.add(peer);
-				
-				//TODO: CONTACT NEW PEER???
-				
-				System.out.println("[PEER] " + peer.getPeerID() + " - " + peer.getIPAddr() + ":" + peer.getPort());
-			}
-		}
-		
-		/**
 			Attempts to contact trackers in the announce URL list in order. Upon a successful response, it
 			parses it and handles new peer information.
 			
@@ -141,8 +137,8 @@ public class Torrent
 			byte[] response = null;
 		
 			//Going through all the announce URLs (if needed)
-	      		for (URL announceURL : info.getAnnounceUrls())
-	      		{
+      		for (URL announceURL : info.getAnnounceUrls())
+      		{
 				//Setting up the query URL
 				String query = "?info_hash=" + encode(info.getInfoHash()) + "&peer_id=" + encode(peerID) + "&port=" + port + 
 				"&uploaded=0&downloaded=0&left=" + info.getFileLength() + "&compact=0&no_peer_id=0";
@@ -169,12 +165,12 @@ public class Torrent
 					conn.connect();
 		
 					//Reading the response from the tracker
-					InputStream connRead = conn.getInputStream();
+					InputStream istream = conn.getInputStream();
 					response = new byte[256];
 					int totalBytesRead = 0;
 					int bytesRead = 0;
 				
-					while ((bytesRead = connRead.read(response, totalBytesRead, 256)) != -1)
+					while ((bytesRead = istream.read(response, totalBytesRead, 256)) != -1)
 					{
 						totalBytesRead += bytesRead;
 						
@@ -190,7 +186,7 @@ public class Torrent
 						}
 					}
 				
-					connRead.close();
+					istream.close();
 		
 					//Disconnecting from the tracker
 					conn.disconnect();
@@ -203,7 +199,7 @@ public class Torrent
 			}
 			
 			//No response from any of the announce URLs
-			if(response == null)
+			if (response == null)
 			{
 				System.out.println("ERROR: Couldn't announce");
 				System.out.println("Will retry in 30 seconds...");
@@ -232,6 +228,9 @@ public class Torrent
 				int seeders = replyDictionary.get("complete").getInt();
 				int leechers = replyDictionary.get("incomplete").getInt();
 				
+				System.out.println("Seeders: " + seeders);
+				System.out.println("Leechers: " + leechers);
+				
 				//Tracker ID is an optional field
 				if (replyDictionary.containsKey("tracker id"))
 				{
@@ -247,7 +246,7 @@ public class Torrent
 					{
 						Map<String, BEValue> peerDictionaryMap = peerDictionary.getMap();
 						
-						String peerID = peerDictionaryMap.get("peer id").getString();
+						byte[] peerID = peerDictionaryMap.get("peer id").getBytes();
 						String IPAddr = peerDictionaryMap.get("ip").getString();
 						int port = peerDictionaryMap.get("port").getInt();
 						
@@ -265,9 +264,9 @@ public class Torrent
 							+ Integer.toString((int)peers[c + 1] & 0xFF) + "."
 							+ Integer.toString((int)peers[c + 2] & 0xFF) + "."
 							+ Integer.toString((int)peers[c + 3] & 0xFF);
-						int port = ((((int)peers[c + 4]) << 8) + (int)peers[c + 5]) & 0xFFFF;
+						int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
 						
-						addPeer(new Peer(IPAddr, port));
+						addPeer(new Peer(new byte[20], IPAddr, port));
 					}
 				}
 				
