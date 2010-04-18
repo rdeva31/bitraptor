@@ -116,19 +116,18 @@ public class Main
 			{
 				//Performing the select
 				select.selectNow();
-				Iterator selectedIter = select.selectedKeys().iterator();
-				
-				while (selectedIter.hasNext())
+				Set<SelectionKey> selectedSet = select.selectedKeys();
+
+				for (SelectionKey selected : selectedSet)
 				{
-					SelectionKey selected = (SelectionKey)selectedIter.next(); 
-					selectedIter.remove();
+					selectedSet.remove(selected);
 					
 					//Handling the read
 					if (selected.isReadable())
 					{
 						incSock = (SocketChannel)selected.channel();
 						
-						//Reading from the socket till end of stream or 68 bytes (length of handshake message)
+						//Reading from the socket till end of stream or 68 bytes (length of handshake message) BLOCKING
 						buffer.clear();
 						while (incSock.read(buffer) != -1 && buffer.position() < 68)
 						{
@@ -176,7 +175,7 @@ public class Main
 						{
 							//Giving the peer to the torrent to handle
 							selected.cancel();
-							torrents.get(infoHash).addPeer(new Peer(peerID, incSock), true);
+							((Torrent)torrents.get(infoHash)).addPeer(new Peer(((Torrent)torrents.get(infoHash)).getInfo(), peerID, incSock), true);
 						}
 					}
 				}

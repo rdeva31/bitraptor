@@ -19,7 +19,7 @@ public class Torrent
 	private String trackerID = null;
 	private Selector handshakeSelect;
 	private Selector select;
-	private ArrayList<Peer> peers;
+	private HashMap<SocketChannel, Peer> peers;
 	private State state = State.STARTED;
 	private ByteBuffer handshakeMsg;
 	
@@ -33,7 +33,7 @@ public class Torrent
 		this.port = port;
 		this.info = info;
 		
-		peers = new ArrayList<Peer>();
+		peers = new HashMap<SocketChannel, Peer>();
 	
 		//Creating a random peer ID (BRXXX...)
 		peerID = new byte[20];
@@ -52,6 +52,7 @@ public class Torrent
 		//Creating the handshake message
 		handshakeMsg = ByteBuffer.allocateDirect(68);
 		handshakeMsg.put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
+		handshakeMsg.flip();
 		
 		//Setting up selectors
 		try
@@ -73,13 +74,127 @@ public class Torrent
 		//Starting up the announcer (runs immediately and then schedules a next run)
 		(new TorrentAnnouncer(this)).run();
 		
-		//TODO: OTHER STUFF???
-		//	-Open up output files for writing (Probably best to take care of this in the Info portions, although maybe
-		//	info would no longer be the best name... Have write() calls in there too, which is great for multifile
-		//	to just have one write call which simplifies stuff out here. Only open once a piece is written!
-		//
-		//	-We may want to schedule other periodic tasks too, to handle upload slot assignments etc...
-		//	(seems like start() may be ALL periodic task initialization haha)
+		//Looping
+		while(true)
+		{
+			//Handshake Selector
+			try
+			{
+				//Performing the select
+				handshakeSelect.selectNow();
+				Set<SelectionKey> selectedSet = handshakeSelect.selectedKeys();
+			
+				for (SelectionKey selected : selectedSet)
+				{
+					selectedSet.remove(selected);
+				
+					//Getting the peer associated with the socket channel
+					SocketChannel sock = (SocketChannel)selected.channel();
+					Peer peer = peers.get(sock);
+				
+					//Handling the read if possible
+					if (selected.isReadable())
+					{
+						if((sock.read(peer.getReadBuffer()) > 0) && (peer.getReadBuffer().limit() >= 68))
+						{
+							System.out.print("[HANDSHAKE] " + peer.getSockAddr());
+
+							//Moving the peer to the main selector if the handshake checks out
+							if(peer.checkHandshake() == true)
+							{
+								System.out.println("... Success!");
+								selected.cancel();
+								sock.register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+							}
+							//Removing the peer if the handshake does not check out
+							else
+							{
+								System.out.println("... FAILED!");
+								selected.cancel();
+								peers.remove(sock);
+							}
+
+							continue;
+						}
+					}
+				
+					//Handling the write if possible
+					if (selected.isWritable())
+					{
+						peer.getWriteBuffer().flip();
+
+						if(peer.getWriteBuffer().hasRemaining())
+						{
+							if(sock.write(peer.getWriteBuffer()) > 0)
+							{
+								System.out.println("[HANDSHAKE SENT] " + peer.getSockAddr());
+							}
+						}
+
+						peer.getWriteBuffer().compact();
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				System.out.println("EXCEPTION: " + e);
+				//TODO: Watch out for ClosedChannelException? to remove the peer
+			}
+		
+			//Main Selector
+			try
+			{
+				//Performing the select
+				select.selectNow();
+				Set<SelectionKey> selectedSet = select.selectedKeys();
+
+				for (SelectionKey selected : selectedSet)
+				{
+					selectedSet.remove(selected);
+				
+					//Getting the peer associated with the socket channel
+					SocketChannel sock = (SocketChannel)selected.channel();
+					Peer peer = peers.get(sock);
+				
+					//Handling the read if possible
+					if (selected.isReadable())
+					{
+						if(sock.read(peer.getReadBuffer()) > 0)
+						{
+							System.out.println("[READ] " + peer.getSockAddr());
+							peer.handleMessages();
+						}
+					}
+				
+					//Handling the write if possible
+					if (selected.isWritable())
+					{
+						peer.getWriteBuffer().flip();
+
+						if(peer.getWriteBuffer().hasRemaining())
+						{
+							if(sock.write(peer.getWriteBuffer()) > 0)
+							{
+								System.out.println("[WRITE] " + peer.getSockAddr());
+								//peer.handleWrites();
+							}
+						}
+						
+						peer.getWriteBuffer().compact();
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				System.out.println("EXCEPTION: " + e);
+				//TODO: Watch out for ClosedChannelException? to remove the peer
+			}
+		}
+	}
+
+	public Info getInfo()
+	{
+		return info;
 	}
 		
 	/**
@@ -90,38 +205,40 @@ public class Torrent
 	*/
 	public void addPeer(Peer peer, boolean incoming)
 	{
+		System.out.println("[PEER ATTEMPT] " + peer.getSockAddr());
+			
 		//Making sure that the peer is not already in the list
-		if (!peers.contains(peer))
+		if (!peers.containsValue(peer))
 		{
 			try
 			{
 				//Connect to the peer via TCP
 				peer.connect();
 				
-				//Sending a handshake message to the peer [[[TODO: ADD QUEUES]]]
-				//peer.write(handshakeMsg);
-				//handshakeMsg.position(0);
+				//Sending a handshake message to the peer
+				peer.getWriteBuffer().put(handshakeMsg);
 				
-				//Incoming Peer: Already received a valid handshake, so place it in main selector with handshake message in its write queue
+				//Incoming Peer: Already received a valid handshake, so place in main selector
 				if (incoming)
 				{
-				
+					System.out.println("[PEER INC] " + peer.getSockAddr());
+					peer.getSocket().register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
 				}
-				//Outgoing Peer: Waiting on valid handshake, so place it in handshake selector with handshake message in its write queue
+				//Outgoing Peer: Waiting on valid handshake, so place in handshake selector
 				else
 				{
-				
+					System.out.println("[PEER OUT] " + peer.getSockAddr());
+					peer.getSocket().register(handshakeSelect, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
 				}
 			}
 			catch (IOException e)
 			{
+				System.out.println("EXCEPTION: " + e);
 				return;
 			}
 			
 			//Adding the peer to the list
-			peers.add(peer);
-			
-			System.out.println("[PEER] " + peer.getSockAddr());
+			peers.put(peer.getSocket(), peer);
 		}
 	}
 	
@@ -174,7 +291,7 @@ public class Torrent
 			byte[] response = null;
 		
 			//Going through all the announce URLs (if needed)
-      		for (URL announceURL : info.getAnnounceUrls())
+			for (URL announceURL : info.getAnnounceUrls())
       		{
 				//Setting up the query URL
 				String query = "?info_hash=" + encode(info.getInfoHash()) + "&peer_id=" + encode(peerID) + "&port=" + port + 
@@ -222,11 +339,12 @@ public class Torrent
 							response = Arrays.copyOf(response, totalBytesRead + 256);
 						}
 					}
-				
-					istream.close();
-		
+
 					//Disconnecting from the tracker
+					istream.close();
 					conn.disconnect();
+
+					break;
 				}
 				//Move onto the next announce URL
 				catch (Exception e)
@@ -287,7 +405,7 @@ public class Torrent
 						String IPAddr = peerDictionaryMap.get("ip").getString();
 						int port = peerDictionaryMap.get("port").getInt();
 						
-						addPeer(new Peer(peerID, IPAddr, port), false);
+						addPeer(new Peer(info, peerID, IPAddr, port), false);
 					}
 				}
 				//Getting peer information via binary format
@@ -303,7 +421,7 @@ public class Torrent
 							+ Integer.toString((int)peers[c + 3] & 0xFF);
 						int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
 						
-						addPeer(new Peer(new byte[20], IPAddr, port), false);
+						addPeer(new Peer(info, new byte[20], IPAddr, port), false);
 					}
 				}
 				
