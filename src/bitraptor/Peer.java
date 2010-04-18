@@ -25,6 +25,9 @@ public class Peer
 	private LinkedList<Request> meRequests;
 	private Request curMeRequest;
 	
+	//Holds the blocks that the peer sends
+	//private Map<int, byte[]> blockBuffer;
+	
 	//Constructor for incoming peers
 	public Peer(Info info, byte[] peerID, SocketChannel sock)
 	{
@@ -47,13 +50,14 @@ public class Peer
 		meInterested = false;
 		peerChoking = true;
 		peerInterested = false;
-		pieces = new BitSet();
+		pieces = new BitSet(info.getPieces().length / 20);
 		readBuffer = ByteBuffer.allocateDirect(4096);
 		writeBuffer = ByteBuffer.allocateDirect(4096);
 		peerRequests = new LinkedList<Request>();
 		curPeerRequest = null;
 		meRequests = new LinkedList<Request>();
 		curMeRequest = null;
+		
 	}
 	
 	public void connect() throws IOException
@@ -63,6 +67,7 @@ public class Peer
 		{
 			sock = SocketChannel.open();
 			sock.configureBlocking(false);
+			sock.socket().setReuseAddress(true);
 			sock.connect(sockAddr);
 			while(!sock.finishConnect())
 			{
@@ -125,6 +130,11 @@ public class Peer
 		return peerInterested;
 	}
 	
+	public BitSet getPieces()
+	{
+		return pieces;
+	}
+	
 	public ByteBuffer getReadBuffer()
 	{
 		return readBuffer;
@@ -133,6 +143,18 @@ public class Peer
 	public ByteBuffer getWriteBuffer()
 	{
 		return writeBuffer;
+	}
+	
+	public boolean isHandlingRequest()
+	{
+		return (curMeRequest != null);
+	}
+	
+	public void addRequests(List<Request> requests)
+	{
+		meRequests.addAll(requests);
+		
+		curMeRequest = meRequests.poll();
 	}
 	
 	public boolean checkHandshake()
@@ -164,7 +186,6 @@ public class Peer
 		
 		//Getting the info hash and peer ID
 		byte[] infoHash = new byte[20];
-		byte[] peerID = new byte[20];
 		readBuffer.get(infoHash);
 		readBuffer.get(peerID);
 		
@@ -175,7 +196,7 @@ public class Peer
 			return false;
 		}
 		
-		readBuffer.clear();
+		readBuffer.compact();
 		return true;
 	}
 	
@@ -184,55 +205,63 @@ public class Peer
 	*/
 	public void handleMessages() throws Exception
 	{
-		while (true)
-		{
-			//Flipping the buffer to read from it
-			readBuffer.flip();
+		//Flipping the buffer to read from it
+		readBuffer.flip();
 		
+		while (readBuffer.hasRemaining())
+		{
 			int messageLength = readBuffer.getInt();
+			
+			System.out.println("\t[MESSAGE LENGTH] " + messageLength);
+			
+			//Keep alive message
+			if(messageLength == 0)
+			{
+				continue;
+			}
 	
 			//Making sure that the buffer has the full message 
 			//TODO: It will never have full piece messages... so like, we gotta do something!
-			if (messageLength <= readBuffer.limit() - 4)
+			if (messageLength <= readBuffer.remaining())
 			{
 				int messageID = readBuffer.get();
 
-				System.out.println("[MESSAGE ID] " + messageID);
+				System.out.println("\t[MESSAGE ID] " + messageID);
 
 				//Handling the message based on the ID
 				switch (messageID)
 				{
-					case 0: //choke
+					case 0: //Choke
 						peerChoking = true;
 						break;
 					
-					case 1: //unchoke
+					case 1: //Unchoke
 						peerChoking = false;
 						break;
 					
-					case 2: //interested
+					case 2: //Interested
 						peerInterested = true;
 						break;
 					
-					case 3: //uninterested
+					case 3: //Uninterested
 						peerInterested = false;
 						break;
 					
-					case 4: //have
+					case 4: //Have
 					{
-						int pieceID = readBuffer.getInt();
-						pieces.set(pieceID); 
+						int piece = readBuffer.getInt();
+						pieces.set(piece); 
 						break;
 					}
 					
-					case 5: //bitfield
+					case 5: //Bitfield
 					{
-						byte bitField[]= new byte[messageLength - 1];
+						byte[] bitField= new byte[messageLength - 1];
 						readBuffer.get(bitField);
 						pieces.clear();
-					
+						
 						int pieceNum = 0;
-						int totalPieces = info.getPieces().length / info.getPieceLength();
+						int totalPieces = info.getPieces().length / 20;
 						for (byte b : bitField)
 						{
 							for (int c = 7; (c > 0) && (pieceNum < totalPieces); c--)
@@ -248,7 +277,7 @@ public class Peer
 						break;
 					}
 					
-					case 6: //request
+					case 6: //Request
 					{
 						int pieceIndex = readBuffer.getInt();
 						int blockOffset = readBuffer.getInt();
@@ -287,14 +316,14 @@ public class Peer
 						break;
 					}
 					
-					case 7: //piece
+					case 7: //Piece
 					{
 						int pieceIndex = readBuffer.getInt();
 						int blockOffset = readBuffer.getInt();
 						int blockLength = messageLength - 1 - 4 - 4;
 						byte block[] = new byte[blockLength];
 						readBuffer.get(block); //TODO: Non blocking call, so we need similar functionality for handling requests as with receiving pieces
-					
+						//TODO verify the hash of the piece
 						if (info instanceof SingleFileInfo)
 						{
 							SingleFileInfo infoAlias = (SingleFileInfo)info;
@@ -317,7 +346,7 @@ public class Peer
 						break;
 					}
 					
-					case 8: //cancel
+					case 8: //Cancel
 					{
 						int pieceIndex = readBuffer.getInt();
 						int blockOffset = readBuffer.getInt();
@@ -327,18 +356,16 @@ public class Peer
 						break;
 					}
 				}
-			
-				//Enabling the buffer to be written to again
-				readBuffer.compact();
 			}
 			else
 			{
-				//Enabling the buffer to be written to again
-				readBuffer.position(readBuffer.limit());
-				readBuffer.limit(readBuffer.capacity());
+				readBuffer.position(readBuffer.position() - 4);
 				break;
 			}
 		}
+		
+		//Enabling the buffer to be written to again
+		readBuffer.compact();
 	}
 	
 	@Override

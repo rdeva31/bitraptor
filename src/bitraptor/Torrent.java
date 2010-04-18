@@ -20,8 +20,8 @@ public class Torrent
 	private Selector handshakeSelect;
 	private Selector select;
 	private HashMap<SocketChannel, Peer> peers;
+	private BitSet requestedPieces;
 	private State state = State.STARTED;
-	private ByteBuffer handshakeMsg;
 	
 	/**
 		Initializes the Torrent based on the information from the file.
@@ -49,10 +49,8 @@ public class Torrent
 			peerID[b] = (byte)(((peerID[b] & 0xFF) % 10) + 48); 
 		}
 		
-		//Creating the handshake message
-		handshakeMsg = ByteBuffer.allocateDirect(68);
-		handshakeMsg.put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
-		handshakeMsg.flip();
+		//Setting up bit set of requested pieces
+		requestedPieces = new BitSet(info.getPieces().length / 20);
 		
 		//Setting up selectors
 		try
@@ -66,27 +64,122 @@ public class Torrent
 		}
 	}
 	
+	
 	/**
-		Starts downloading the torrent
+		Finds the next optimal piece to request relative to a given peer
+		
+		@returns The piece index or -1 if no good piece found
+	*/
+	private int getNextPiece(Peer peer)
+	{
+		BitSet pieces = (BitSet)(peer.getPieces().clone());
+		pieces.andNot(requestedPieces);
+		int[] pieceCounts = new int[pieces.length()];
+		
+		//No piece found if all the pieces the peer has are requested (or if peer had no pieces)
+		if(pieces.isEmpty())
+		{
+			return -1;
+		}
+		
+		//Initialize piece counts based on what the peer has
+		for (int c = 0; c < pieceCounts.length; c++)
+		{
+			if (pieces.get(c))
+			{
+				pieceCounts[c] = 1;
+			}
+			else
+			{
+				pieceCounts[c] = 0;
+			}
+		}
+		
+		Collection<Peer> peerSet = peers.values();
+		for (Peer p : peerSet)
+		{
+			if (p.equals(peer))
+			{
+				continue;
+			}
+			
+			BitSet shared = (BitSet)(p.getPieces().clone());
+			shared.and(pieces);
+			
+			int c = -1;
+			while ((c = shared.nextSetBit(c+1)) != -1)
+			{
+				pieceCounts[c] += 1;
+			}
+		}
+		
+		int piece = requestedPieces.nextClearBit(0);
+		int smallest = pieceCounts[requestedPieces.nextClearBit(0)];
+		
+		for (int c = 0; c < pieceCounts.length; c++)
+		{
+			if (pieceCounts[c] < smallest)
+			{
+				piece = c;
+			}
+		}
+		
+		return piece;
+	}
+	
+	/**
+		Starts downloading the torrent and handles the main interactions
 	*/
 	public void start()
 	{
+		final int BLOCK_SIZE = 16*1024;
+				
 		//Starting up the announcer (runs immediately and then schedules a next run)
 		(new TorrentAnnouncer(this)).run();
 		
-		//Looping
+		//Looping forever
 		while(true)
 		{
+			//Setting up new piece requests for peers if needed
+			Collection<Peer> peerSet = peers.values();
+			for (Peer peer : peerSet)
+			{
+				//if(peer.isPeerChoking() || peer.isHandlingRequest())
+				if(peer.isHandlingRequest())
+				{
+					continue;
+				}
+				
+				//Finding the optimal piece to request from the peer
+				int piece = getNextPiece(peer);
+				if (piece == -1)
+				{
+					continue;
+				}
+				
+				List<Request> requests = new ArrayList<Request>();
+				for (int c = 0; c < info.getPieceLength(); c += BLOCK_SIZE) 
+				{
+					requests.add(new Request(piece, c, BLOCK_SIZE)); 
+				}
+				
+				System.out.println("[ADD REQUEST] Piece # " + piece + " from peer " + peer.getSockAddr());
+				
+				requestedPieces.set(piece);
+				peer.addRequests(requests);
+			}
+		
 			//Handshake Selector
 			try
 			{
 				//Performing the select
 				handshakeSelect.selectNow();
-				Set<SelectionKey> selectedSet = handshakeSelect.selectedKeys();
-			
-				for (SelectionKey selected : selectedSet)
+				Iterator it = handshakeSelect.selectedKeys().iterator();
+				
+				while(it.hasNext())
 				{
-					selectedSet.remove(selected);
+					SelectionKey selected = (SelectionKey)it.next();
+					it.remove();
 				
 					//Getting the peer associated with the socket channel
 					SocketChannel sock = (SocketChannel)selected.channel();
@@ -95,7 +188,7 @@ public class Torrent
 					//Handling the read if possible
 					if (selected.isReadable())
 					{
-						if((sock.read(peer.getReadBuffer()) > 0) && (peer.getReadBuffer().limit() >= 68))
+						if((sock.read(peer.getReadBuffer()) > 0) && (peer.getReadBuffer().position() >= 68))
 						{
 							System.out.print("[HANDSHAKE] " + peer.getSockAddr());
 
@@ -138,6 +231,8 @@ public class Torrent
 			catch (Exception e)
 			{
 				System.out.println("EXCEPTION: " + e);
+				e.printStackTrace();
+				return;
 				//TODO: Watch out for ClosedChannelException? to remove the peer
 			}
 		
@@ -146,12 +241,13 @@ public class Torrent
 			{
 				//Performing the select
 				select.selectNow();
-				Set<SelectionKey> selectedSet = select.selectedKeys();
-
-				for (SelectionKey selected : selectedSet)
-				{
-					selectedSet.remove(selected);
+				Iterator it = select.selectedKeys().iterator();
 				
+				while(it.hasNext())
+				{
+					SelectionKey selected = (SelectionKey)it.next();
+					it.remove();
+					
 					//Getting the peer associated with the socket channel
 					SocketChannel sock = (SocketChannel)selected.channel();
 					Peer peer = peers.get(sock);
@@ -187,6 +283,8 @@ public class Torrent
 			catch (Exception e)
 			{
 				System.out.println("EXCEPTION: " + e);
+				e.printStackTrace();
+				return;
 				//TODO: Watch out for ClosedChannelException? to remove the peer
 			}
 		}
@@ -205,8 +303,6 @@ public class Torrent
 	*/
 	public void addPeer(Peer peer, boolean incoming)
 	{
-		System.out.println("[PEER ATTEMPT] " + peer.getSockAddr());
-			
 		//Making sure that the peer is not already in the list
 		if (!peers.containsValue(peer))
 		{
@@ -216,7 +312,7 @@ public class Torrent
 				peer.connect();
 				
 				//Sending a handshake message to the peer
-				peer.getWriteBuffer().put(handshakeMsg);
+				peer.getWriteBuffer().put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
 				
 				//Incoming Peer: Already received a valid handshake, so place in main selector
 				if (incoming)
