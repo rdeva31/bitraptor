@@ -32,6 +32,7 @@ public class Main
 			select = Selector.open();
 			sock = ServerSocketChannel.open();
 			sock.configureBlocking(false);
+			sock.socket().setReuseAddress(true);
 			sock.socket().bind(new InetSocketAddress(6881)); 
 		}
 		catch (Exception e)
@@ -116,11 +117,12 @@ public class Main
 			{
 				//Performing the select
 				select.selectNow();
-				Set<SelectionKey> selectedSet = select.selectedKeys();
-
-				for (SelectionKey selected : selectedSet)
+				Iterator it = select.selectedKeys().iterator();
+				
+				while(it.hasNext())
 				{
-					selectedSet.remove(selected);
+					SelectionKey selected = (SelectionKey)it.next();
+					it.remove();
 					
 					//Handling the read
 					if (selected.isReadable())
