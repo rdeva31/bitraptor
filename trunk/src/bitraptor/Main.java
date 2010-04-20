@@ -21,7 +21,7 @@ public class Main
 	 */
 	public static void main(String[] args)
 	{
-		System.out.println("BitRaptor -- PoS in the shape of a raptor");
+		System.out.println("BitRaptor -- Downloads torrents as it rips your face off");
 		System.out.println("(Type 'help' to see available commands)");
 		
 		buffer = ByteBuffer.allocateDirect(128);

@@ -95,6 +95,7 @@ public class Torrent
 			}
 		}
 		
+		//Adding to piece counts based on shared pieces
 		Collection<Peer> peerSet = peers.values();
 		for (Peer p : peerSet)
 		{
@@ -113,12 +114,13 @@ public class Torrent
 			}
 		}
 		
+		//Finding the smallest count, which is rarest piece
 		int piece = requestedPieces.nextClearBit(0);
 		int smallest = pieceCounts[requestedPieces.nextClearBit(0)];
 		
 		for (int c = 0; c < pieceCounts.length; c++)
 		{
-			if (pieceCounts[c] < smallest)
+			if (pieceCounts[c] > 0 && pieceCounts[c] < smallest)
 			{
 				piece = c;
 			}
@@ -144,7 +146,6 @@ public class Torrent
 			Collection<Peer> peerSet = peers.values();
 			for (Peer peer : peerSet)
 			{
-				//if(peer.isPeerChoking() || peer.isHandlingRequest())
 				if(peer.isHandlingRequest())
 				{
 					continue;
@@ -152,10 +153,14 @@ public class Torrent
 				
 				//Finding the optimal piece to request from the peer
 				int piece = getNextPiece(peer);
+				
+				//No piece found that we want to request from peer
 				if (piece == -1)
 				{
+					peer.setInterested(false);
 					continue;
 				}
+				
 				
 				List<Request> requests = new ArrayList<Request>();
 				for (int c = 0; c < info.getPieceLength(); c += BLOCK_SIZE) 
@@ -166,9 +171,37 @@ public class Torrent
 				System.out.println("[ADD REQUEST] Piece # " + piece + " from peer " + peer.getSockAddr());
 				
 				requestedPieces.set(piece);
+				
+				peer.setInterested(true);
 				peer.addRequests(requests);
 			}
-		
+			
+			/*
+			//Choke all but the top 4 peers
+			List<Peer> valuablePeers = new ArrayList<Peer>(peers.values());
+			Collections.sort(valuablePeers, 
+				new Comparator<Peer>()
+				{
+					public int compare(Peer a, Peer b)
+					{
+						return new Integer(a.getPeerValue()).compareTo(b.getPeerValue());
+					}
+				});
+				
+			int counter = 0;
+			for (Peer p : valuablePeers)
+			{
+				if (counter++ < 4)
+				{
+					p.setChoking(false);
+				}
+				else
+				{
+					p.setChoking(true);
+				}
+			}
+			*/
+			
 			//Handshake Selector
 			try
 			{
@@ -215,7 +248,6 @@ public class Torrent
 					if (selected.isWritable())
 					{
 						peer.getWriteBuffer().flip();
-
 						if(peer.getWriteBuffer().hasRemaining())
 						{
 							if(sock.write(peer.getWriteBuffer()) > 0)
@@ -223,7 +255,6 @@ public class Torrent
 								System.out.println("[HANDSHAKE SENT] " + peer.getSockAddr());
 							}
 						}
-
 						peer.getWriteBuffer().compact();
 					}
 				}
@@ -265,14 +296,15 @@ public class Torrent
 					//Handling the write if possible
 					if (selected.isWritable())
 					{
+						peer.setupWrites();
+						
 						peer.getWriteBuffer().flip();
-
+						
 						if(peer.getWriteBuffer().hasRemaining())
 						{
 							if(sock.write(peer.getWriteBuffer()) > 0)
 							{
 								System.out.println("[WRITE] " + peer.getSockAddr());
-								//peer.handleWrites();
 							}
 						}
 						
