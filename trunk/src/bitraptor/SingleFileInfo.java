@@ -1,6 +1,8 @@
 package bitraptor;
 
 import java.util.*;
+import java.io.*;
+import java.nio.*;
 
 /**
  *
@@ -11,10 +13,10 @@ public class SingleFileInfo extends Info
 	private String name = null; 	//Filename
 	private int fileLength = 0; 	//File size
 	private byte [] md5sum = null; 	//MD5 hash of file
-
+	private RandomAccessFile file;
+	
 	public SingleFileInfo()
 	{
-
 	}
 
 	public SingleFileInfo(Info i)
@@ -86,6 +88,15 @@ public class SingleFileInfo extends Info
 	public void setName(String name)
 	{
 		this.name = name;
+		try
+		{
+			finish();
+			file = new RandomAccessFile(name, "rw");
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+		}
 	}
 
 	@Override
@@ -128,4 +139,52 @@ public class SingleFileInfo extends Info
 	{
 		return name + " (" + fileLength + "bytes) with md5um " + ((md5sum == null) ? "none": new String(md5sum));
 	}
+	
+	public ByteBuffer readPiece(int pieceIndex) throws Exception
+	{
+		int pieceSize = getPieceLength();
+		ByteBuffer buffer = ByteBuffer.allocate(pieceSize);
+		byte[] data = new byte[pieceSize];
+		
+		file.seek(pieceIndex * pieceSize);
+		file.read(data);
+		
+		return buffer.put(data);
+	}
+	
+	public ByteBuffer readBlock(int pieceIndex, int blockOffset, int blockLength) throws Exception
+	{
+		int pieceSize = getPieceLength();
+		ByteBuffer buffer = ByteBuffer.allocate(blockLength);
+		byte[] data = new byte[blockLength];
+		
+		file.seek((pieceIndex * pieceSize) + blockOffset);
+		file.read(data);
+		
+		return buffer.put(data);
+	}
+	
+	public void writePiece(byte[] data, int pieceIndex) throws Exception
+	{
+		int pieceSize = getPieceLength();
+		
+		file.seek(pieceIndex * pieceSize);
+		file.write(data);
+	}
+	
+	public void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception
+	{
+		int pieceSize = getPieceLength();
+		
+		file.seek((pieceIndex * pieceSize) + blockOffset);
+		file.write(data);
+	}
+	
+	public void finish() throws Exception
+	{
+		if (file != null)
+		{
+			file.close();
+		}
+	} 
 }

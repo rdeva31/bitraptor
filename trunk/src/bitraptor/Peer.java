@@ -47,6 +47,7 @@ public class Peer
 	
 	private static byte[] protocolName = {'B', 'i', 't', 'T', 'o', 'r', 'r', 'e', 'n', 't', ' ', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
 	
+	private Torrent torrent;
 	private Info info;
 	private byte[] peerID;
 	private SocketChannel sock;
@@ -63,6 +64,7 @@ public class Peer
 	boolean isSendingBlock;
 	
 	private LinkedList<Request> meRequests;
+	private LinkedList<Request> meSentRequests;
 	private Request curMeRequest;
 	private ByteBuffer mePieceBuffer;
 	private ByteBuffer meBlockBuffer;
@@ -71,20 +73,21 @@ public class Peer
 	private int peerValue;  
 	
 	//Constructor for incoming peers
-	public Peer(Info info, byte[] peerID, SocketChannel sock)
+	public Peer(Torrent torrent, byte[] peerID, SocketChannel sock)
 	{
-		this(info, peerID, sock, (InetSocketAddress)(sock.socket().getRemoteSocketAddress()));
+		this(torrent, peerID, sock, (InetSocketAddress)(sock.socket().getRemoteSocketAddress()));
 	}
 	
 	//Constructor for outgoing peers
-	public Peer(Info info, byte[] peerID, String IPAddr, int port)
+	public Peer(Torrent torrent, byte[] peerID, String IPAddr, int port)
 	{
-		this(info, peerID, (SocketChannel)null, new InetSocketAddress(IPAddr, port));
+		this(torrent, peerID, (SocketChannel)null, new InetSocketAddress(IPAddr, port));
 	}
 	
-	public Peer(Info info, byte[] peerID, SocketChannel sock, InetSocketAddress sockAddr)
+	public Peer(Torrent torrent, byte[] peerID, SocketChannel sock, InetSocketAddress sockAddr)
 	{
-		this.info = info;
+		this.torrent = torrent;
+		this.info = torrent.getInfo();
 		this.peerID = peerID;
 		this.sock = sock;
 		this.sockAddr = sockAddr;
@@ -104,9 +107,9 @@ public class Peer
 		peerBlockBuffer = null;
 		isSendingBlock = false;
 		meRequests = new LinkedList<Request>();
+		meSentRequests = new LinkedList<Request>();
 		curMeRequest = null;
 		meBlockBuffer = null;
-		mePieceBuffer = null;
 		isReceivingBlock = false;
 		
 		peerValue = (info.getPieces().length / 20) < 50 ?  
@@ -122,7 +125,7 @@ public class Peer
 			sock.configureBlocking(false);
 			sock.socket().setReuseAddress(true);
 			sock.connect(sockAddr);
-			while(!sock.finishConnect())
+			while (!sock.finishConnect())
 			{
 			}
 		}
@@ -218,7 +221,7 @@ public class Peer
 	
 	public boolean isHandlingRequest()
 	{
-		return (curMeRequest != null);
+		return ((meRequests.size() > 0) || (meSentRequests.size() > 0));
 	}
 	
 	public int getPeerValue()
@@ -226,26 +229,9 @@ public class Peer
 		return peerValue;
 	}
 	
-	public void addRequests(List<Request> requests)
+	public void addRequest(Request request)
 	{
-		//Adding all of the requests to the queue
-		meRequests.addAll(requests);
-		
-		//Setting up the piece buffer
-		mePieceBuffer = ByteBuffer.allocate(info.getPieceLength());
-		
-		//Sending the request to the peer
-		curMeRequest = meRequests.poll();
-		
-		meBlockBuffer = ByteBuffer.allocate(curMeRequest.getBlockLength());
-		
-		ByteBuffer header = ByteBuffer.allocate(12);
-		header.order(ByteOrder.BIG_ENDIAN);
-		header.putInt(curMeRequest.getPieceIndex());
-		header.putInt(curMeRequest.getBlockOffset());
-		header.putInt(curMeRequest.getBlockLength());
-		
-		writeMessage(MessageType.REQUEST, header);
+		meRequests.add(request);
 	}
 	
 	public void writeMessage(MessageType type, ByteBuffer payload)
@@ -262,7 +248,7 @@ public class Peer
 		}
 	}
 	
-	public boolean checkHandshake()
+	public boolean checkHandshake() throws Exception
 	{
 		//Flipping the buffer to read the data
 		readBuffer.flip();
@@ -301,6 +287,15 @@ public class Peer
 			return false;
 		}
 		
+		//Dropping the connection if the peer ID matches a current peer's peer ID
+		for (Peer peer : torrent.getPeers())
+		{
+			if((peer != this) && (Arrays.equals(peer.getPeerID(), peerID)))
+			{
+				throw new Exception("Already have a peer with that peer ID");
+			}
+		}
+		
 		readBuffer.compact();
 		return true;
 	}
@@ -310,57 +305,65 @@ public class Peer
 	*/
 	public void setupWrites() throws Exception
 	{
+		//Sending request to the peer if possible and none were sent yet still unfulfilled
+		if((meSentRequests.size() == 0) && (meRequests.size() > 0))
+		{
+			Request newRequest = meRequests.remove();
+	
+			ByteBuffer header = ByteBuffer.allocate(12);
+			header.order(ByteOrder.BIG_ENDIAN);
+			header.putInt(newRequest.getPieceIndex());
+			header.putInt(newRequest.getBlockOffset());
+			header.putInt(newRequest.getBlockLength());
+
+			writeMessage(MessageType.REQUEST, header);
+	
+			meSentRequests.add(newRequest);
+			
+			System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
+		}
+		
 		//Currently sending a block to the peer, so copy data from the bock buffer
 		if (isSendingBlock)
 		{
 			peerBlockBuffer.flip();
 			writeBuffer.put(peerBlockBuffer);
-			peerBlockBuffer.compact();
 			
 			//No more block data to send, so end the current request
-			if (peerBlockBuffer.position() == 0)
+			if (!peerBlockBuffer.hasRemaining())
 			{
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
+			
+			peerBlockBuffer.compact();
 		}
-		//Not sending a block, so copy messages from the message buffer (and possibly start another request)
+		//Not sending a block
 		else
 		{
+			//There is a queued request from the peer
 			curPeerRequest = peerRequests.poll(); 
-			
 			if (curPeerRequest != null)
 			{
 				int blockLength = curPeerRequest.getBlockLength();
 				int pieceIndex = curPeerRequest.getPieceIndex();
 				int blockOffset = curPeerRequest.getBlockOffset();
 			
-				//Calculate which file the piece belongs to
-				if (info instanceof SingleFileInfo)
-				{
-					SingleFileInfo infoAlias = (SingleFileInfo)info;
+				//Reading in the block that the peer wants from the file
+				peerBlockBuffer = info.readBlock(pieceIndex, blockOffset, blockLength);
 					
-					byte[] block = new byte[blockLength];
-					FileInputStream f = new FileInputStream(new File(infoAlias.getName()));
-					f.read(block, pieceIndex * info.getPieceLength() + blockOffset, blockLength);
-					
-					peerBlockBuffer = ByteBuffer.wrap(block);
-					
-					ByteBuffer header = ByteBuffer.allocate(8);
-					header.order(ByteOrder.BIG_ENDIAN);
-					header.putInt(pieceIndex);
-					header.putInt(blockOffset);
-					
-					writeMessage(MessageType.PIECE, header);
-				}
-				else if (info instanceof MultiFileInfo)
-				{
-					throw new Exception("Multifile not implemented");
-				}
+				//Setting up the header
+				ByteBuffer header = ByteBuffer.allocate(8);
+				header.order(ByteOrder.BIG_ENDIAN);
+				header.putInt(pieceIndex);
+				header.putInt(blockOffset);
 				
+				writeMessage(MessageType.PIECE, header);
+					
 				isSendingBlock = true;
 			}
 			
+			//Copy messages from the message buffer to the write buffer
 			writeMsgBuffer.flip();
 			writeBuffer.put(writeMsgBuffer);
 			writeMsgBuffer.compact();
@@ -383,50 +386,49 @@ public class Peer
 			//Block was fully downloaded from the peer
 			if (!meBlockBuffer.hasRemaining())
 			{
-				//Putting the block in the piece buffer
-				mePieceBuffer.put(meBlockBuffer);
+				//Removing from sent requests
+				meSentRequests.remove(curMeRequest);
+							
+				//Writing the block to the piece
+				meBlockBuffer.flip();
+				byte[] block = new byte[meBlockBuffer.remaining()];
+				meBlockBuffer.get(block);
+				boolean isPieceFinished = curMeRequest.getPiece().writeBlock(curMeRequest.getBlockOffset(), block);
 				
-				//Piece was fully downloaded from the peer
-				if (!mePieceBuffer.hasRemaining())
+				//Piece is finished downloading, so notify the torrent to do final processing
+				if (isPieceFinished)
 				{
-					//TODO: Calculate SHA-1 hash to ensure correctness
-				
-					//Calculate which file the piece belongs to
-					if (info instanceof SingleFileInfo)
-					{
-						SingleFileInfo infoAlias = (SingleFileInfo)info;
-						FileOutputStream f = new FileOutputStream(new File(infoAlias.getName()));
-						f.write(mePieceBuffer.array(), curMeRequest.getPieceIndex() * info.getPieceLength(), info.getPieceLength());
-					}
-					else if (info instanceof MultiFileInfo)
-					{
-						throw new Exception("Multifile not implemented");
-					}
+					torrent.finishPiece(curMeRequest.getPiece());
 				}
 				
-				//Starting a new request if possible
-				curMeRequest = meRequests.poll();
-				if (curMeRequest != null)
+				//Sending a new request if possible
+				if (meRequests.size() > 0)
 				{
-					meBlockBuffer = ByteBuffer.allocate(curMeRequest.getBlockLength());
-			
+					Request newRequest = meRequests.remove();
+					
 					ByteBuffer header = ByteBuffer.allocate(12);
 					header.order(ByteOrder.BIG_ENDIAN);
-					header.putInt(curMeRequest.getPieceIndex());
-					header.putInt(curMeRequest.getBlockOffset());
-					header.putInt(curMeRequest.getBlockLength());
+					header.putInt(newRequest.getPieceIndex());
+					header.putInt(newRequest.getBlockOffset());
+					header.putInt(newRequest.getBlockLength());
 			
 					writeMessage(MessageType.REQUEST, header);
+					
+					meSentRequests.add(newRequest);
+				
+					System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
 				}
+				
+				isReceivingBlock = false;
 			}
 		}
-		//Going through all of the messages read from the peer
+		//Not receiving a block from the peer
 		else
 		{
+			//Going through all the messages from the peer
 			while (readBuffer.remaining() >= 4)
 			{
 				int messageLength = readBuffer.getInt();
-				System.out.println("\tMessage Length: " + messageLength);
 			
 				//Keep alive message
 				if (messageLength == 0)
@@ -442,12 +444,13 @@ public class Peer
 				}
 			
 				MessageType messageID = MessageType.fromInt(readBuffer.get());
-				System.out.println("\tMessage ID: " + messageID);
 	
 				//Making sure that the buffer has the full message (or atleast enough for piece message information)
 				if ((messageLength - 1) <= readBuffer.remaining() || 
-					((messageID == MessageType.PIECE) && ((messageLength - 1) <= 8)))
+					((messageID == MessageType.PIECE) && (readBuffer.remaining() >= 8)))
 				{
+					//System.out.println("\tMessage ID: " + messageID);
+				
 					//Handling the message based on the ID
 					switch (messageID)
 					{
@@ -494,12 +497,12 @@ public class Peer
 								}							
 							}
 					
-							//newbie to the swarm, give him good value
-							//also give good value if the peer is close to finishing?
+							//Older peers with pieces already do not get the nice starting peer value
 							if (pieces.nextSetBit(0) != -1)
 							{
 								peerValue = 0;
 							}
+							
 							break;
 						}
 					
@@ -511,27 +514,61 @@ public class Peer
 					
 							byte block[] = new byte[blockLength];
 					
-						
-							if (meChoking) //Don't honour request if choked
+							//Do not queue the request if we are choking them
+							if (meChoking)
 							{
 								break;
 							}
-							else if (blockLength > 128 * 1024) //if block length >128kb drop connection
+							//Do not queue the request if it is for a piece we do not have yet
+							else if (!torrent.getReceivedPieces().get(pieceIndex))
 							{
-								throw new Exception("Requested blocksize too big"); //TODO: In torrent.java make exceptions drop connections
+								break;
+							}
+							//Block length is > 128 KB, so drop the connection
+							else if (blockLength > (128 * 1024))
+							{
+								throw new Exception("Requested blocksize too big");
 							}
 						
 							++peerValue;
-							if (!peerRequests.offer(new Request(pieceIndex, blockOffset, blockLength)))
-								throw new Exception("request queue ran out of memory");
+							
+							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						
 							break;
 						}
 					
 						case PIECE:
 						{
+							int pieceIndex = readBuffer.getInt();
+							int blockOffset = readBuffer.getInt();
+							
+							//Attempting to find the request that corresponds to the piece message
+							curMeRequest = null;
+							for(Request request : meSentRequests)
+							{
+								if ((pieceIndex == request.getPieceIndex()) && (blockOffset == request.getBlockOffset()))
+								{
+									curMeRequest = request;
+								}
+							}
+							
+							//This piece was not matched up to a request
+							if (curMeRequest == null)
+							{
+								throw new Exception("Invalid piece message");
+							}
+							
+							System.out.println("[RECEIVE PIECE] Piece # " + pieceIndex + " block offset " + curMeRequest.getBlockOffset() + " from peer " + sockAddr);
+		
+							//Setting up to receive the block
+							meBlockBuffer = ByteBuffer.allocate(curMeRequest.getBlockLength());
 							isReceivingBlock = true;
+							
 							--peerValue;
+		
+							//Enabling the buffer to be written to again (since returning immediately)
+							readBuffer.compact();
+		
 							return;
 						}
 					
@@ -541,7 +578,7 @@ public class Peer
 							int blockOffset = readBuffer.getInt();
 							int blockLength = readBuffer.getInt();
 					
-							peerRequests.remove(new Request(pieceIndex, blockOffset, blockLength));
+							peerRequests.remove(new Request(null, pieceIndex, blockOffset, blockLength));
 							break;
 						}
 					}

@@ -2,6 +2,8 @@ package bitraptor;
 
 import java.util.*;
 import java.net.*;
+import java.nio.*;
+import java.io.*;
 
 public abstract class Info
 {
@@ -122,7 +124,13 @@ public abstract class Info
 	}
 	
 	public abstract int getFileLength();
-
+	
+	public abstract ByteBuffer readPiece(int pieceIndex) throws Exception;
+	public abstract ByteBuffer readBlock(int pieceIndex, int blockOffset, int blockLength) throws Exception;
+	public abstract void writePiece(byte[] data, int pieceIndex) throws Exception;
+	public abstract void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception;
+	public abstract void finish() throws Exception;
+	
 	@Override
 	public String toString()
 	{
