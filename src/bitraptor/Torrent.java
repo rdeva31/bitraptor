@@ -1,5 +1,6 @@
 package bitraptor;
 
+import java.lang.*;
 import java.util.*;
 import java.net.*;
 import java.io.*;
@@ -20,7 +21,9 @@ public class Torrent
 	private Selector handshakeSelect;
 	private Selector select;
 	private HashMap<SocketChannel, Peer> peers;
+	private BitSet receivedPieces;
 	private BitSet requestedPieces;
+	private LinkedList<Request> requestPool;
 	private State state = State.STARTED;
 	
 	/**
@@ -32,8 +35,6 @@ public class Torrent
 	{
 		this.port = port;
 		this.info = info;
-		
-		peers = new HashMap<SocketChannel, Peer>();
 	
 		//Creating a random peer ID (BRXXX...)
 		peerID = new byte[20];
@@ -49,8 +50,10 @@ public class Torrent
 			peerID[b] = (byte)(((peerID[b] & 0xFF) % 10) + 48); 
 		}
 		
-		//Setting up bit set of requested pieces
+		peers = new HashMap<SocketChannel, Peer>();
 		requestedPieces = new BitSet(info.getPieces().length / 20);
+		receivedPieces = new BitSet(info.getPieces().length / 20);
+		requestPool = new LinkedList<Request>();
 		
 		//Setting up selectors
 		try
@@ -63,16 +66,30 @@ public class Torrent
 			System.out.println("ERROR: Could not open selectors for use in torrent");
 		}
 	}
+
+	public Info getInfo()
+	{
+		return info;
+	}
 	
+	public Collection<Peer> getPeers()
+	{
+		return peers.values();
+	}
+	
+	public BitSet getReceivedPieces()
+	{
+		return receivedPieces;
+	}
 	
 	/**
 		Finds the next optimal piece to request relative to a given peer
 		
 		@returns The piece index or -1 if no good piece found
 	*/
-	private int getNextPiece(Peer peer)
+	private int getNextPiece(Peer peer, LinkedList<Peer> peerList)
 	{
-		BitSet pieces = (BitSet)(peer.getPieces().clone());
+		BitSet pieces = ((BitSet)peer.getPieces().clone());
 		pieces.andNot(requestedPieces);
 		int[] pieceCounts = new int[pieces.length()];
 		
@@ -99,34 +116,98 @@ public class Torrent
 		Collection<Peer> peerSet = peers.values();
 		for (Peer p : peerSet)
 		{
+			//Skipping over the peer itself since it was already taken into account
 			if (p.equals(peer))
 			{
 				continue;
 			}
 			
-			BitSet shared = (BitSet)(p.getPieces().clone());
-			shared.and(pieces);
+			BitSet sharedPieces = p.getPieces();
+			sharedPieces.and(pieces);
 			
-			int c = -1;
-			while ((c = shared.nextSetBit(c+1)) != -1)
+			int curPiece = -1;
+			while ((curPiece = sharedPieces.nextSetBit(curPiece + 1)) != -1)
 			{
-				pieceCounts[c] += 1;
+				pieceCounts[curPiece] += 1;
 			}
 		}
 		
-		//Finding the smallest count, which is rarest piece
-		int piece = requestedPieces.nextClearBit(0);
-		int smallest = pieceCounts[requestedPieces.nextClearBit(0)];
+		//Finding the smallest count (greater than 0) and the pieces that have that count
+		int lowestCount = Integer.MAX_VALUE;
+		LinkedList<Integer> bestPieces = new LinkedList<Integer>();
+		int curPiece = -1;
 		
-		for (int c = 0; c < pieceCounts.length; c++)
+		while ((curPiece = pieces.nextSetBit(curPiece + 1)) != -1)
 		{
-			if (pieceCounts[c] > 0 && pieceCounts[c] < smallest)
+			if ((pieceCounts[curPiece] > 0) && (pieceCounts[curPiece] < lowestCount))
 			{
-				piece = c;
+				lowestCount = pieceCounts[curPiece];
+				bestPieces.clear();
+				bestPieces.add(curPiece);
+			}
+		}
+		
+		//Choosing a random piece out of the ones that share the lowest count
+		int piece = bestPieces.get((int)(Math.random() * (bestPieces.size() - 1)));
+		
+		//Finding all peers that have that piece
+		for (Peer pp : peerSet)
+		{
+			if (pp.getPieces().get(piece))
+			{
+				peerList.add(pp);
 			}
 		}
 		
 		return piece;
+	}
+	
+	public void finishPiece(Piece piece)
+	{
+		int pieceIndex = piece.getPieceIndex();
+		byte[] downloadedHash = null;
+		
+		try
+		{
+			downloadedHash = piece.hash();
+		}
+		catch (Exception e)
+		{
+			requestedPieces.clear(pieceIndex);
+		}
+		
+		//The hash of the downloaded piece matches the known hash
+		if(Arrays.equals(downloadedHash, Arrays.copyOfRange(info.getPieces(), pieceIndex * 20, (pieceIndex + 1) * 20)))
+		{
+			try
+			{
+				info.writePiece(piece.getBytes(), pieceIndex);
+				receivedPieces.set(pieceIndex);
+				
+				System.out.println("[DOWNLOADED] " + pieceIndex);
+				
+				//Sending out HAVE messages to all peers for the new piece
+				Collection<Peer> peerSet = peers.values();
+				for (Peer peer : peerSet)
+				{
+					ByteBuffer payload = ByteBuffer.allocate(4);
+					payload.order(ByteOrder.BIG_ENDIAN);
+					payload.putInt(pieceIndex);
+					peer.writeMessage(Peer.MessageType.HAVE, payload);
+				}
+			}
+			catch (Exception e)
+			{
+				System.out.println("[FAIL] " + pieceIndex);
+				requestedPieces.clear(pieceIndex);
+			}
+		}
+		//The hashes do not match
+		else
+		{
+			System.out.println("[HASH FAIL] " + pieceIndex);
+			requestedPieces.clear(pieceIndex);
+		}
 	}
 	
 	/**
@@ -142,38 +223,52 @@ public class Torrent
 		//Looping forever
 		while(true)
 		{
-			//Setting up new piece requests for peers if needed
+			//Handling various functions for each peer
 			Collection<Peer> peerSet = peers.values();
 			for (Peer peer : peerSet)
 			{
-				if(peer.isHandlingRequest())
+				//Skipping over any peers that already are handling requests or choked
+				if(peer.isHandlingRequest() || peer.isPeerChoking())
 				{
 					continue;
 				}
 				
-				//Finding the optimal piece to request from the peer
-				int piece = getNextPiece(peer);
+				//Finding the optimal piece to request, and the list of peers that have it
+				LinkedList<Peer> peerList = new LinkedList<Peer>();
+				int p = getNextPiece(peer, peerList);
 				
 				//No piece found that we want to request from peer
-				if (piece == -1)
+				if (p == -1)
 				{
-					peer.setInterested(false);
 					continue;
 				}
 				
+				//Initializing a piece
+				Piece piece = new Piece(p, info.getPieceLength());
 				
-				List<Request> requests = new ArrayList<Request>();
+				//Generating all of the block requests for the piece
+				LinkedList<Request> requests = new LinkedList<Request>();
 				for (int c = 0; c < info.getPieceLength(); c += BLOCK_SIZE) 
 				{
-					requests.add(new Request(piece, c, BLOCK_SIZE)); 
+					requests.add(new Request(piece, p, c, BLOCK_SIZE)); 
+				}
+					
+				System.out.println("[ADD REQUEST] Piece #" + p + " from " + peerList.size() + " peers");
+				
+				//Dividing up requests among all of the peers 
+				//TODO: Divide based on how many requests they currently have pending
+				int totalRequests = requests.size();
+				int requestsPerPeer = (int)Math.ceil((double)totalRequests / (double)peerList.size());
+				for (int r = 0; r < totalRequests; r++)
+				{
+					Request curRequest = requests.remove();
+					peerList.get(r / requestsPerPeer).addRequest(curRequest);
+				
+					System.out.println("\tBlock Offset " + curRequest.getBlockOffset() + " - " + peerList.get(r / requestsPerPeer).getSockAddr());
 				}
 				
-				System.out.println("[ADD REQUEST] Piece # " + piece + " from peer " + peer.getSockAddr());
-				
-				requestedPieces.set(piece);
-				
-				peer.setInterested(true);
-				peer.addRequests(requests);
+				//Set that the piece was requested
+				requestedPieces.set(p);
 			}
 			
 			/*
@@ -230,7 +325,10 @@ public class Torrent
 							{
 								System.out.println("... Success!");
 								selected.cancel();
-								sock.register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+								sock.register(select, SelectionKey.OP_CONNECT | SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+								
+								//Expressing interest in the peer automatically
+								peer.writeMessage(Peer.MessageType.INTERESTED, null);
 							}
 							//Removing the peer if the handshake does not check out
 							else
@@ -247,6 +345,8 @@ public class Torrent
 					//Handling the write if possible
 					if (selected.isWritable())
 					{
+						peer.setupWrites();
+				
 						peer.getWriteBuffer().flip();
 						if(peer.getWriteBuffer().hasRemaining())
 						{
@@ -288,7 +388,6 @@ public class Torrent
 					{
 						if(sock.read(peer.getReadBuffer()) > 0)
 						{
-							System.out.println("[READ] " + peer.getSockAddr());
 							peer.handleMessages();
 						}
 					}
@@ -297,17 +396,14 @@ public class Torrent
 					if (selected.isWritable())
 					{
 						peer.setupWrites();
-						
+				
 						peer.getWriteBuffer().flip();
-						
 						if(peer.getWriteBuffer().hasRemaining())
 						{
 							if(sock.write(peer.getWriteBuffer()) > 0)
 							{
-								System.out.println("[WRITE] " + peer.getSockAddr());
 							}
 						}
-						
 						peer.getWriteBuffer().compact();
 					}
 				}
@@ -320,11 +416,6 @@ public class Torrent
 				//TODO: Watch out for ClosedChannelException? to remove the peer
 			}
 		}
-	}
-
-	public Info getInfo()
-	{
-		return info;
 	}
 		
 	/**
@@ -343,20 +434,26 @@ public class Torrent
 				//Connect to the peer via TCP
 				peer.connect();
 				
-				//Sending a handshake message to the peer
-				peer.getWriteBuffer().put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
-				
 				//Incoming Peer: Already received a valid handshake, so place in main selector
 				if (incoming)
 				{
 					System.out.println("[PEER INC] " + peer.getSockAddr());
 					peer.getSocket().register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+					
+					//Sending handshake message to the peer
+					peer.getWriteBuffer().put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
+					
+					//Expressing interest in the peer automatically
+					peer.writeMessage(Peer.MessageType.INTERESTED, null);
 				}
 				//Outgoing Peer: Waiting on valid handshake, so place in handshake selector
 				else
 				{
 					System.out.println("[PEER OUT] " + peer.getSockAddr());
 					peer.getSocket().register(handshakeSelect, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+					
+					//Sending handshake message to the peer
+					peer.getWriteBuffer().put((byte)19).put(protocolName).putDouble(0.0).put(info.getInfoHash()).put(peerID);
 				}
 			}
 			catch (IOException e)
@@ -533,7 +630,7 @@ public class Torrent
 						String IPAddr = peerDictionaryMap.get("ip").getString();
 						int port = peerDictionaryMap.get("port").getInt();
 						
-						addPeer(new Peer(info, peerID, IPAddr, port), false);
+						addPeer(new Peer(toAnnounce, peerID, IPAddr, port), false);
 					}
 				}
 				//Getting peer information via binary format
@@ -549,7 +646,7 @@ public class Torrent
 							+ Integer.toString((int)peers[c + 3] & 0xFF);
 						int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
 						
-						addPeer(new Peer(info, new byte[20], IPAddr, port), false);
+						addPeer(new Peer(toAnnounce, new byte[20], IPAddr, port), false);
 					}
 				}
 				

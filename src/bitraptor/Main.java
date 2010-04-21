@@ -103,6 +103,7 @@ public class Main
 			{
 				if (sock != null && (incSock = sock.accept()) != null)
 				{
+					incSock.configureBlocking(false);
 					incSock.register(select, SelectionKey.OP_READ);
 					
 					System.out.println("[INC] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
@@ -171,13 +172,31 @@ public class Main
 						byte[] peerID = new byte[20];
 						buffer.get(infoHash);
 						buffer.get(peerID);
-						
+		
 						//Checking to make sure a current torrent matches it
 						if (torrents.containsKey(infoHash))
 						{
+							Torrent torrent = ((Torrent)torrents.get(infoHash));
+							
+							//Dropping the connection if the peer ID matches a current peer's peer ID
+							for (Peer peer : torrent.getPeers())
+							{
+								if(Arrays.equals(peer.getPeerID(), peerID))
+								{
+									selected.cancel();
+									continue;
+								}
+							}
+							
 							//Giving the peer to the torrent to handle
 							selected.cancel();
-							((Torrent)torrents.get(infoHash)).addPeer(new Peer(((Torrent)torrents.get(infoHash)).getInfo(), peerID, incSock), true);
+							torrent.addPeer(new Peer(torrent, peerID, incSock), true);
+						}
+						//Dropping the connection if no torrent matches it
+						else
+						{
+							selected.cancel();
+							continue;
 						}
 					}
 				}
