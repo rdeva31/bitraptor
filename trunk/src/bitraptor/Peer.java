@@ -354,22 +354,12 @@ public class Peer implements Comparable
 	}
 
 	/**
-		Removing a request from either the peer (cancel message) or queue
+		Removing a request from either the queued
 		@param request request to remove
 	*/
 	public void removeRequest(Request request)
 	{
 		meRequests.remove(request);
-		if(meSentRequests.remove(request))
-		{
-			ByteBuffer payload = ByteBuffer.allocate(12);
-			payload.order(ByteOrder.BIG_ENDIAN);
-			payload.putInt(request.getPieceIndex());
-			payload.putInt(request.getBlockOffset());
-			payload.putInt(request.getBlockLength());
-			
-			writeMessage(MessageType.CANCEL, payload);
-		}
 	}
 
 	/**
@@ -549,6 +539,8 @@ public class Peer implements Comparable
 				header.putInt(blockOffset);
 				
 				writeMessage(MessageType.PIECE, header);
+
+				System.out.println("[HANDLING PEER REQUEST]");
 					
 				isSendingBlock = true;
 			}
@@ -608,7 +600,7 @@ public class Peer implements Comparable
 				}
 				
 				//Sending a new request if possible
-				if (meRequests.size() > 0)
+				if (!peerChoking && meRequests.size() > 0)
 				{
 					Request newRequest = meRequests.remove();
 					
@@ -770,7 +762,7 @@ public class Peer implements Comparable
 								throw new Exception("Requested blocksize too big");
 							}
 							
-//							System.out.println("[PEER REQUEST]");
+							System.out.println("[PEER REQUEST]");
 							
 							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						

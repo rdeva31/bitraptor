@@ -1,6 +1,5 @@
 package bitraptor;
 
-import java.lang.*;
 import java.util.*;
 import java.net.*;
 import java.io.*;
@@ -33,7 +32,7 @@ public class Torrent
 	private final int NUM_UPLOAD_SLOTS = 5; //number of upload slots
 	private final int BLOCK_SIZE = 16*1024;
 	
-	private final int REQUEST_TIMER_PERIOD = 1000; //in milliseconds
+	private final int REQUEST_TIMER_PERIOD = 2*1000; //in milliseconds
 	private boolean requestTimerStatus = false; 
 	
 	private final int END_GAME_REQUEST_TIMER_PERIOD = 15*1000; //in milliseconds
@@ -99,7 +98,10 @@ public class Torrent
 	*/
 	public Collection<Peer> getPeers()
 	{
-		return peers.values();
+		synchronized(peers)
+		{
+			return peers.values();
+		}
 	}
 
 	/**
@@ -160,24 +162,28 @@ public class Torrent
 		}
 		
 		//Adding to piece counts based on shared piecess
-		Collection<Peer> peerSet = peers.values();
-		for (Peer p : peerSet)
+		Collection<Peer> peerSet;
+		synchronized(peers)
 		{
-			//Skipping over the peer itself since it was already taken into account
-			if (p.equals(peer))
+			peerSet = peers.values();
+			for (Peer p : peerSet)
 			{
-				continue;
-			}
-			
-			//Finding the pieces shared between the peers
-			BitSet sharedPieces = p.getPieces();
-			sharedPieces.and(pieces);
-			
-			//Incrementing the shared pieces in the counts array
-			int curPiece = -1;
-			while ((curPiece = sharedPieces.nextSetBit(curPiece + 1)) != -1)
-			{
-				pieceCounts[curPiece] += 1;
+				//Skipping over the peer itself since it was already taken into account
+				if (p.equals(peer))
+				{
+					continue;
+				}
+
+				//Finding the pieces shared between the peers
+				BitSet sharedPieces = (BitSet)p.getPieces().clone();
+				sharedPieces.and(pieces);
+
+				//Incrementing the shared pieces in the counts array
+				int curPiece = -1;
+				while ((curPiece = sharedPieces.nextSetBit(curPiece + 1)) != -1)
+				{
+					pieceCounts[curPiece] += 1;
+				}
 			}
 		}
 		
@@ -219,10 +225,14 @@ public class Torrent
 		}
 		
 		//Going through all the peers and removing the request
-		Collection<Peer> peerSet = peers.values();
-		for (Peer peer : peerSet)
+		Collection<Peer> peerSet;
+		synchronized(peers)
 		{
-			peer.removeRequest(request);
+			peerSet = peers.values();
+			for (Peer peer : peerSet)
+			{
+				peer.removeRequest(request);
+			}
 		}
 	}
 
@@ -251,7 +261,7 @@ public class Torrent
 			{
 				info.writePiece(piece.getBytes(), pieceIndex);
 				receivedPieces.set(pieceIndex);
-				pieces.remove(piece);
+				pieces.remove(piece.getPieceIndex());
 				
 				System.out.println("[DOWNLOADED] " + pieceIndex);
 				
@@ -259,12 +269,16 @@ public class Torrent
 				ByteBuffer payload = ByteBuffer.allocate(4);
 				payload.order(ByteOrder.BIG_ENDIAN);
 					
-				Collection<Peer> peerSet = peers.values();
-				for (Peer peer : peerSet)
+				Collection<Peer> peerSet;
+				synchronized(peers)
 				{
-					payload.clear();
-					payload.putInt(pieceIndex);
-					peer.writeMessage(Peer.MessageType.HAVE, payload);
+					peerSet = peers.values();
+					for (Peer peer : peerSet)
+					{
+						payload.clear();
+						payload.putInt(pieceIndex);
+						peer.writeMessage(Peer.MessageType.HAVE, payload);
+					}
 				}
 			}
 			catch (Exception e)
@@ -291,36 +305,29 @@ public class Torrent
 	}
 
 	/**
-		Generating requests and adding them to a peer when in end game mode
-		@param piece piece to add requests for
+		Generating requests and adding them to optimally selected peers to distribute the load. Used if the piece already was created
+		@param ppiece piece to add requests for
 		@param peer peer to add the requests to
 	*/
-	public void generateRequestsEndGame(Piece piece, Peer peer)
-	{		 
+	public void generateRequests(Piece piece, Peer peer)
+	{
+		int pieceLength = piece.getPieceLength();
+
 		//Generating all of the block requests for the piece
 		LinkedList<Request> requests = new LinkedList<Request>();
-		for (int c = 0; c < piece.getPieceLength(); c += BLOCK_SIZE) 
+		for (int c = 0; c < pieceLength; c += BLOCK_SIZE)
 		{
 			//Calculating the block size (possibly shorter if it is the last block in the last piece)
 			int blockSize = BLOCK_SIZE;
-			if (c + BLOCK_SIZE > piece.getPieceLength())
+			if (c + BLOCK_SIZE > pieceLength)
 			{
-				blockSize = piece.getPieceLength() - c;
+				blockSize = pieceLength - c;
 			}
-			
-			requests.add(new Request(piece, piece.getPieceIndex(), c, blockSize)); 
-		}
-			
-//		System.out.println("[END GAME REQUEST] Piece #" + piece.getPieceIndex() + " from peer " + peer.getSockAddr());
-		
-		//Adding all of the requests to the peer
-		int totalRequests = requests.size();
-		for (int r = 0; r < totalRequests; r++)
-		{
-			peer.addRequest(requests.remove());
+
+			peer.addRequest(new Request(piece, piece.getPieceIndex(), c, blockSize));
 		}
 
-		peer.shuffleRequests();
+//		System.out.println("[END GAME REQUEST] Piece #" + piece.getPieceIndex() + " from " + peer.getSockAddr());
 	}
 
 	/**
@@ -355,7 +362,7 @@ public class Torrent
 			peer.addRequest(new Request(piece, p, c, blockSize));
 		}
 			
-//		System.out.println("[ADD REQUEST] Piece #" + p + " from " + peerList.size() + " peers");
+//		System.out.println("[ADD REQUEST] Piece #" + p + " from " + peer.getSockAddr());
 	}
 	
 	/**
@@ -426,44 +433,53 @@ public class Torrent
 				else
 				{
 					endGameRequestTimerStatus = false;
-//					System.out.println("[END GAME PROCESSING]");
+//					System.out.println("***END GAME PROCESSING***");
 				}
 				
 				//Getting the set of peers
-				Collection<Peer> peerSet = peers.values();
-				
-				//Calculating the unfulfilled requests
-				BitSet unfulfilledPieces = ((BitSet)receivedPieces.clone());
-				unfulfilledPieces.flip(0, (info.getPieces().length / 20));
-				
-				//Going through all of the unfulfilled pieces and adding them to a list
-				int pieceIndex = -1;
-				LinkedList<Piece> pieceList = new LinkedList<Piece>();
-				while ((pieceIndex = unfulfilledPieces.nextSetBit(pieceIndex + 1)) != -1)
+				Collection<Peer> peerSet;
+
+				synchronized(peers)
 				{
-					//Finding the corresponding piece to the index
-					Piece piece = pieces.get(pieceIndex);
-					
-					if (piece == null)
-					{
-						continue;
-					}
-					
-					//Sending out the requests to all of the peers that have the piece (make sure they know you are interested too)
+					peerSet = peers.values();
+
+					//Dropping all of the queued but not sent requests for each peer
 					for (Peer peer : peerSet)
 					{
-						if(peer.getPieces().get(pieceIndex))
+						peer.getRequests().clear();
+					}
+				
+					//Calculating the unfulfilled requests
+					BitSet unfulfilledPieces = ((BitSet)receivedPieces.clone());
+					unfulfilledPieces.flip(0, (info.getPieces().length / 20));
+
+					//Going through all of the unfulfilled pieces and adding them to a list
+					int pieceIndex = -1;
+					LinkedList<Piece> pieceList = new LinkedList<Piece>();
+					while ((pieceIndex = unfulfilledPieces.nextSetBit(pieceIndex + 1)) != -1)
+					{
+//						System.out.println("UNFULFILLED PIECE: " + pieceIndex);
+
+						//Finding the corresponding piece to the index
+						Piece piece = pieces.get(pieceIndex);
+
+						//Sending out the requests to all of the peers that have the piece (make sure they know you are interested too)
+						for (Peer peer : peerSet)
 						{
-							peer.setInterested(true);
-							generateRequestsEndGame(piece, peer);
+							if(peer.getPieces().get(pieceIndex))
+							{
+//								System.out.println("\tPeer Request: " + peer.getSockAddr());
+								peer.setInterested(true);
+								generateRequests(piece, peer);
+							}
 						}
 					}
-				}
 					
-				//Forcing each peer to shuffle the order of their requests in order to increase speed
-				for (Peer peer : peerSet)
-				{
-					peer.shuffleRequests();
+					//Forcing each peer to shuffle the order of their requests in order to increase speed
+					for (Peer peer : peerSet)
+					{
+						peer.shuffleRequests();
+					}
 				}
 			}
 		
@@ -474,15 +490,19 @@ public class Torrent
 				int pieceIndex = request.getPieceIndex();
 			
 				//Going through all the peers
-				LinkedList<Peer> peerSet = new LinkedList<Peer>();
-				peerSet.addAll(peers.values());
-				LinkedList<Peer> peersWithPiece = new LinkedList<Peer>();
-				for (Peer peer : peerSet)
+				Collection<Peer> peerSet;
+				LinkedList<Peer> peersWithPiece;
+				synchronized(peers)
 				{
-					//Peer has the piece
-					if (peer.getPieces().get(pieceIndex))
+					peerSet = peers.values();
+					peersWithPiece = new LinkedList<Peer>();
+					for (Peer peer : peerSet)
 					{
-						peersWithPiece.add(peer);
+						//Peer has the piece
+						if (peer.getPieces().get(pieceIndex))
+						{
+							peersWithPiece.add(peer);
+						}
 					}
 				}
 				
@@ -519,30 +539,35 @@ public class Torrent
 			{
 				requestTimerStatus = false;
 			
-				Collection<Peer> peerSet = peers.values();
-				for (Peer peer : peerSet)
+				Collection<Peer> peerSet;
+				synchronized(peers)
 				{
-					//Skipping over any peers with requests already or peers that are choking us
-					if((peer.getNumRequests() > 6) || peer.isPeerChoking())
+					peerSet = peers.values();
+
+					for (Peer peer : peerSet)
 					{
-						continue;
+						//Skipping over any peers with requests already or peers that are choking us
+						if((peer.getNumRequests() > 2) || peer.isPeerChoking())
+						{
+							continue;
+						}
+
+						//Finding the optimal piece to request
+						int p = getNextPiece(peer);
+
+						//No piece found that we want to request from peer (also notify that we are no longer interested)
+						if (p == -1)
+						{
+							//peer.setInterested(false);
+							continue;
+						}
+
+						//Generating all of the requests and adding them to the peer
+						generateRequests(p, peer);
+
+						//Set that the piece was requested
+						requestedPieces.set(p);
 					}
-				
-					//Finding the optimal piece to request
-					int p = getNextPiece(peer);
-				
-					//No piece found that we want to request from peer (also notify that we are no longer interested)
-					if (p == -1)
-					{
-						peer.setInterested(false);
-						continue;
-					}
-				
-					//Generating all of the requests and adding them to the peer
-					generateRequests(p, peer);
-				
-					//Set that the piece was requested
-					requestedPieces.set(p);
 				}
 			}
 			
@@ -560,7 +585,12 @@ public class Torrent
 				
 					//Getting the peer associated with the socket channel
 					SocketChannel sock = (SocketChannel)selected.channel();
-					Peer peer = peers.get(sock);
+					Peer peer;
+
+					synchronized(peers)
+					{
+						 peer = peers.get(sock);
+					}
 				
 					try
 					{
@@ -654,7 +684,12 @@ public class Torrent
 					
 					//Getting the peer associated with the socket channel
 					SocketChannel sock = (SocketChannel)selected.channel();
-					Peer peer = peers.get(sock);
+					Peer peer;
+
+					synchronized(peers)
+					{
+						 peer = peers.get(sock);
+					}
 					
 					try
 					{
@@ -708,12 +743,15 @@ public class Torrent
 	*/
 	public void forceRemovePeer(Peer peer)
 	{
-		//Adding all the requests to the torrent request pool
-		addRequestsToPool(peer.getRequests());
-		addRequestsToPool(peer.getSentRequests());
-		
-		//Removing the peer from the map
-		peers.remove(peer.getSocket());
+		synchronized(peers)
+		{
+			//Adding all the requests to the torrent request pool
+			addRequestsToPool(peer.getRequests());
+			addRequestsToPool(peer.getSentRequests());
+
+			//Removing the peer from the map
+			peers.remove(peer.getSocket());
+		}
 	}
 		
 	/**
@@ -738,13 +776,13 @@ public class Torrent
 					//Incoming Peer: Already received a valid handshake, so place in main selector
 					if (incoming)
 					{
-	//					System.out.println("[PEER INC] " + peer.getSockAddr());
+//						System.out.println("[PEER INC] " + peer.getSockAddr());
 						peer.getSocket().register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
 					}
 					//Outgoing Peer: Waiting on connection and a valid handshake, so place in handshake selector
 					else
 					{
-	//					System.out.println("[PEER OUT] " + peer.getSockAddr());
+//						System.out.println("[PEER OUT] " + peer.getSockAddr());
 						peer.getSocket().register(handshakeSelect, SelectionKey.OP_CONNECT);
 					}
 				}
@@ -795,7 +833,7 @@ public class Torrent
 		*/
 		private void schedule(int seconds)
 		{
-			//(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
+			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
 		}
 		
 		/**
@@ -975,7 +1013,13 @@ public class Torrent
 		*/
 		public void run()
 		{
-			LinkedList<Peer> peerList = new LinkedList<Peer>(peers.values());
+			LinkedList<Peer> peerList;
+			
+			synchronized(peers)
+			{
+				peerList = new LinkedList<Peer>(peers.values());
+			}
+
 			Collections.sort(peerList, new Comparator<Peer>()
 			{
 				public int compare(Peer a, Peer b)
@@ -988,14 +1032,16 @@ public class Torrent
 			});
 
 			int downloadedTotal = 0;
+			int uploadedTotal = 0;
 			for (Peer peer : peerList)
 			{
 				downloadedTotal += peer.getDownloaded();
+				uploadedTotal += peer.getUploaded();
 				peer.resetDownloaded();
 				peer.resetUploaded();
 			}
 
-			System.out.println("DL: " + (((double)downloadedTotal / 1024.0) / 10) + " KBps");
+			System.out.println("DL: " + (((double)downloadedTotal / 1024.0) / 10) + " KBps - UP: " + (((double)uploadedTotal / 1024.0) / 10) + " KBps");
 
 			synchronized(uploadSlotActions)
 			{
