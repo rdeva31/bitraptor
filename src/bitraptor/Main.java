@@ -186,24 +186,6 @@ public class Main
 						if (torrents.containsKey(infoHash))
 						{
 							Torrent torrent = ((Torrent)torrents.get(infoHash));
-
-							//Dropping the connection if the peer ID matches a current peer's peer ID
-							boolean validPeerID = true;
-							for (Peer peer : torrent.getPeers())
-							{
-								if(Arrays.equals(peer.getPeerID(), peerID))
-								{
-									validPeerID = false;
-									break;
-								}
-							}
-
-							if (!validPeerID)
-							{
-								selected.cancel();
-								continue;
-							}
-
 							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 
 							//Giving the peer to the torrent to handle

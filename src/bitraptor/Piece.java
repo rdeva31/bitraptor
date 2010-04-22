@@ -27,6 +27,7 @@ public class Piece
 		bytesReceived = new BitSet(pieceLength);
 		isFinished = false;
 	}
+
 	/**
 		Writes the data to the piece.
 		
