@@ -6,7 +6,7 @@ import java.nio.*;
 import java.nio.channels.*;
 import java.util.*;
 
-public class Peer
+public class Peer implements Comparable
 {
 
 	public enum MessageType {
@@ -56,6 +56,7 @@ public class Peer
 	private boolean peerChoking, peerInterested;
 	private BitSet pieces;
 	private ByteBuffer readBuffer, writeBuffer, writeMsgBuffer;
+	private int uploaded, downloaded; 
 	
 	//Variables for handling requests
 	private LinkedList<Request> peerRequests;
@@ -68,9 +69,7 @@ public class Peer
 	private Request curMeRequest;
 	private ByteBuffer mePieceBuffer;
 	private ByteBuffer meBlockBuffer;
-	boolean isReceivingBlock;
-	
-	private int peerValue;  
+	boolean isReceivingBlock; 
 	
 	//Constructor for incoming peers
 	public Peer(Torrent torrent, byte[] peerID, SocketChannel sock)
@@ -102,6 +101,8 @@ public class Peer
 		readBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeMsgBuffer.order(ByteOrder.BIG_ENDIAN);
+		uploaded = 0;
+		downloaded = 0;
 		peerRequests = new LinkedList<Request>();
 		curPeerRequest = null;
 		peerBlockBuffer = null;
@@ -111,9 +112,6 @@ public class Peer
 		curMeRequest = null;
 		meBlockBuffer = null;
 		isReceivingBlock = false;
-		
-		peerValue = (info.getPieces().length / 20) < 50 ?  
-				((info.getPieces().length / 20) / 4) : 50 ;
 	}
 	
 	public void connect() throws IOException
@@ -125,9 +123,6 @@ public class Peer
 			sock.configureBlocking(false);
 			sock.socket().setReuseAddress(true);
 			sock.connect(sockAddr);
-			while (!sock.finishConnect())
-			{
-			}
 		}
 	}
 	
@@ -156,7 +151,7 @@ public class Peer
 		{
 			writeMessage(MessageType.UNCHOKE, null);
 		}
-		
+	
 		meChoking = choking;
 	}
 	
@@ -224,14 +219,93 @@ public class Peer
 		return ((meRequests.size() > 0) || (meSentRequests.size() > 0));
 	}
 	
-	public int getPeerValue()
+	public int getUploaded()
 	{
-		return peerValue;
+		return uploaded;
+	}
+	
+	public void resetUploaded()
+	{
+		uploaded = 0;
+	}
+	
+	public int getDownloaded()
+	{
+		return downloaded;
+	}
+	
+	public void resetDownloaded()
+	{
+		downloaded = 0;
+	}
+	
+	public int getNumRequests()
+	{
+		return meRequests.size() + meSentRequests.size();
 	}
 	
 	public void addRequest(Request request)
 	{
-		meRequests.add(request);
+		if((!meRequests.contains(request)) && (!meSentRequests.contains(request)))
+		{
+			meRequests.add(request);
+		}
+	}
+	
+	public LinkedList<Request> getRequests()
+	{
+		return meRequests;
+	}
+	
+	public LinkedList<Request> getSentRequests()
+	{
+		return meSentRequests;
+	}
+	
+	public void removeRequest(Request request)
+	{
+		meRequests.remove(request);
+		if(meSentRequests.remove(request))
+		{
+			ByteBuffer payload = ByteBuffer.allocate(12);
+			payload.order(ByteOrder.BIG_ENDIAN);
+			payload.putInt(request.getPieceIndex());
+			payload.putInt(request.getBlockOffset());
+			payload.putInt(request.getBlockLength());
+			
+			writeMessage(MessageType.CANCEL, payload);
+		}
+	}
+	
+	public void shuffleRequests()
+	{
+		Collections.shuffle(meRequests);
+	}
+	
+	@Override
+	public int compareTo(Object obj)
+	{
+		if (obj == null)
+		{
+			throw new ClassCastException();
+		}
+		if (getClass() != obj.getClass())
+		{
+			throw new ClassCastException();
+		}
+		
+		final Peer other = (Peer) obj;
+		
+		if (this.getNumRequests() < other.getNumRequests())
+		{
+			return -1;
+		}
+		else if (this.getNumRequests() > other.getNumRequests())
+		{
+			return 1;
+		}
+		
+		return 0;
 	}
 	
 	public void writeMessage(MessageType type, ByteBuffer payload)
@@ -240,6 +314,7 @@ public class Peer
 		{
 			payload.flip();
 			writeMsgBuffer.putInt(1 + payload.remaining()).put((byte)type.valueOf()).put(payload);
+			payload.rewind();
 			payload.compact();
 		}
 		else
@@ -305,22 +380,26 @@ public class Peer
 	*/
 	public void setupWrites() throws Exception
 	{
-		//Sending request to the peer if possible and none were sent yet still unfulfilled
+		//Sending up to 2 requests to the peer if possible and none were sent yet still unfulfilled
 		if((meSentRequests.size() == 0) && (meRequests.size() > 0))
 		{
-			Request newRequest = meRequests.remove();
+			int requestsToSend = Math.min(2, meRequests.size());
+			for (int r = 0; r < requestsToSend; r++)
+			{
+				Request newRequest = meRequests.remove();
 	
-			ByteBuffer header = ByteBuffer.allocate(12);
-			header.order(ByteOrder.BIG_ENDIAN);
-			header.putInt(newRequest.getPieceIndex());
-			header.putInt(newRequest.getBlockOffset());
-			header.putInt(newRequest.getBlockLength());
+				ByteBuffer header = ByteBuffer.allocate(12);
+				header.order(ByteOrder.BIG_ENDIAN);
+				header.putInt(newRequest.getPieceIndex());
+				header.putInt(newRequest.getBlockOffset());
+				header.putInt(newRequest.getBlockLength());
 
-			writeMessage(MessageType.REQUEST, header);
+				writeMessage(MessageType.REQUEST, header);
 	
-			meSentRequests.add(newRequest);
+				meSentRequests.add(newRequest);
 			
-			System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
+//				System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
+			}
 		}
 		
 		//Currently sending a block to the peer, so copy data from the bock buffer
@@ -329,9 +408,13 @@ public class Peer
 			peerBlockBuffer.flip();
 			writeBuffer.put(peerBlockBuffer);
 			
+			//Adding to uploaded total
+			uploaded += peerBlockBuffer.position();
+			
 			//No more block data to send, so end the current request
 			if (!peerBlockBuffer.hasRemaining())
 			{
+//				System.out.println("[PEER REQUEST SERVED]");
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
@@ -381,13 +464,29 @@ public class Peer
 		//Currently receiving a block from the peer
 		if (isReceivingBlock)
 		{
-			meBlockBuffer.put(readBuffer);
+			try
+			{
+				meBlockBuffer.put(readBuffer);
+			}
+			catch (BufferOverflowException e)
+			{
+				int prevLimit = readBuffer.limit();
+				readBuffer.limit(meBlockBuffer.remaining());
+				meBlockBuffer.put(readBuffer);
+				readBuffer.limit(prevLimit);
+			}
+			
+			//Adding to downloaded total
+			downloaded += readBuffer.position();
 			
 			//Block was fully downloaded from the peer
 			if (!meBlockBuffer.hasRemaining())
 			{
 				//Removing from sent requests
 				meSentRequests.remove(curMeRequest);
+				
+				//Letting the torrent know it finished the request (for end game mode)
+				torrent.finishRequest(curMeRequest);
 							
 				//Writing the block to the piece
 				meBlockBuffer.flip();
@@ -416,7 +515,7 @@ public class Peer
 					
 					meSentRequests.add(newRequest);
 				
-					System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
+//					System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
 				}
 				
 				isReceivingBlock = false;
@@ -455,10 +554,31 @@ public class Peer
 					switch (messageID)
 					{
 						case CHOKE:
+							//Sending cancel messages to the peer for each sent request
+							ByteBuffer payload = ByteBuffer.allocate(12);
+							payload.order(ByteOrder.BIG_ENDIAN);
+							for (Request request : meSentRequests)
+							{
+								payload.clear();
+								payload.putInt(request.getPieceIndex());
+								payload.putInt(request.getBlockOffset());
+								payload.putInt(request.getBlockLength());
+							
+								writeMessage(MessageType.CANCEL, payload);
+							}
+							
+							//Adding all the requests to the torrent request pool
+							torrent.addRequestsToPool(meRequests);
+							meRequests.clear();
+							torrent.addRequestsToPool(meSentRequests);
+							meSentRequests.clear();
+							
+//							System.out.println("[CHOKED] By peer " + sockAddr);
 							peerChoking = true;
 							break;
 					
 						case UNCHOKE:
+//							System.out.println("[UNCHOKED] By peer " + sockAddr);
 							peerChoking = false;
 							break;
 					
@@ -473,7 +593,14 @@ public class Peer
 						case HAVE:
 						{
 							int piece = readBuffer.getInt();
-							pieces.set(piece); 
+							pieces.set(piece);
+							
+							//Advertising interest if it is a piece we do not have / have not requested
+							if(!torrent.getRequestedPieces().get(piece))
+							{
+								setInterested(true);
+							}
+							
 							break;
 						}
 					
@@ -483,24 +610,30 @@ public class Peer
 							readBuffer.get(bitField);
 							pieces.clear();
 							
+							//Initializing the bitfield based off of the bytes
 							int totalPieces = info.getPieces().length / 20;
-							int pieceNum = 0;
+							int pieceIndex = 0;
 							for (byte b : bitField)
 							{
-								for (int c = 7; (c > 0) && (pieceNum < totalPieces); c--)
+								for (int c = 7; (c > 0) && (pieceIndex < totalPieces); c--)
 								{
 									if ((b & (1 << c)) != 0)
 									{
-										pieces.set(pieceNum);
+										pieces.set(pieceIndex);
 									}
-									pieceNum++;
+									pieceIndex++;
 								}							
 							}
-					
-							//Older peers with pieces already do not get the nice starting peer value
-							if (pieces.nextSetBit(0) != -1)
+							
+							//Advertising interest if there is a piece we do not have / have not requested
+							pieceIndex = -1;
+							while ((pieceIndex = pieces.nextSetBit(pieceIndex + 1)) != -1)
 							{
-								peerValue = 0;
+								if(!torrent.getRequestedPieces().get(pieceIndex))
+								{
+									setInterested(true);
+									break;
+								}
 							}
 							
 							break;
@@ -529,8 +662,8 @@ public class Peer
 							{
 								throw new Exception("Requested blocksize too big");
 							}
-						
-							++peerValue;
+							
+//							System.out.println("[PEER REQUEST]");
 							
 							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						
@@ -558,13 +691,11 @@ public class Peer
 								throw new Exception("Invalid piece message");
 							}
 							
-							System.out.println("[RECEIVE PIECE] Piece # " + pieceIndex + " block offset " + curMeRequest.getBlockOffset() + " from peer " + sockAddr);
+//							System.out.println("[RECEIVE PIECE] Piece # " + pieceIndex + " block offset " + curMeRequest.getBlockOffset() + " from peer " + sockAddr);
 		
 							//Setting up to receive the block
 							meBlockBuffer = ByteBuffer.allocate(curMeRequest.getBlockLength());
 							isReceivingBlock = true;
-							
-							--peerValue;
 		
 							//Enabling the buffer to be written to again (since returning immediately)
 							readBuffer.compact();

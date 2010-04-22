@@ -7,6 +7,10 @@ import java.nio.*;
 import java.nio.channels.*;
 import org.klomp.snark.bencode.*;
 
+
+/**
+	
+*/
 public class Main
 {
 	private static byte[] protocolName = {'B', 'i', 't', 'T', 'o', 'r', 'r', 'e', 'n', 't', ' ', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
@@ -21,10 +25,10 @@ public class Main
 	 */
 	public static void main(String[] args)
 	{
-		System.out.println("BitRaptor -- Downloads torrents as it rips your face off");
+		System.out.println("BitRaptor");
 		System.out.println("(Type 'help' to see available commands)");
 		
-		buffer = ByteBuffer.allocateDirect(128);
+		buffer = ByteBuffer.allocate(68);
 		
 		//Starting up the main socket server (not blocking) to listen for incoming peers
 		try
@@ -96,6 +100,8 @@ public class Main
 			}
 			catch (IOException e)
 			{
+				System.out.println("IOEXCEPTION: " + e);
+				e.printStackTrace();
 			}
 			
 			//Accept any new incoming peer connections
@@ -106,7 +112,7 @@ public class Main
 					incSock.configureBlocking(false);
 					incSock.register(select, SelectionKey.OP_READ);
 					
-					System.out.println("[INC] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
+//					System.out.println("[INC] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 				}
 			}
 			catch (Exception e)
@@ -125,84 +131,97 @@ public class Main
 					SelectionKey selected = (SelectionKey)it.next();
 					it.remove();
 					
-					//Handling the read
-					if (selected.isReadable())
+					try
 					{
-						incSock = (SocketChannel)selected.channel();
-						
-						//Reading from the socket till end of stream or 68 bytes (length of handshake message) BLOCKING
-						buffer.clear();
-						while (incSock.read(buffer) != -1 && buffer.position() < 68)
+						//Handling the read
+						if (selected.isReadable())
 						{
-						}
+							incSock = (SocketChannel)selected.channel();
 						
-						//Dropping the connection if invalid message length
-						if (buffer.position() != 68)
-						{
-							selected.cancel();
-							continue;
-						}
+							//Reading from the socket till end of stream or 68 bytes (length of handshake message) BLOCKING
+							buffer.clear();
+							while (incSock.read(buffer) != -1)
+							{
+							}
 						
-						buffer.flip();
+//							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 						
-						//Dropping the connection if invalid name length
-						if (buffer.get() != 19)
-						{
-							selected.cancel();
-							continue;
-						}
-						
-						//Dropping the connection if invalid protocol name
-						byte[] name = new byte[19];
-						buffer.get(name);
-						for (int b = 0; b < 19; b++)
-						{
-							if (protocolName[b] != name[b])
+							//Dropping the connection if invalid message length
+							if (buffer.position() != 68)
 							{
 								selected.cancel();
 								continue;
 							}
-						}
 						
-						//Skipping over the next 8 reserved bytes
-						buffer.getDouble();
+							buffer.flip();
 						
-						//Getting the info hash and peer ID
-						byte[] infoHash = new byte[20];
-						byte[] peerID = new byte[20];
-						buffer.get(infoHash);
-						buffer.get(peerID);
-		
-						//Checking to make sure a current torrent matches it
-						if (torrents.containsKey(infoHash))
-						{
-							Torrent torrent = ((Torrent)torrents.get(infoHash));
-							
-							//Dropping the connection if the peer ID matches a current peer's peer ID
-							for (Peer peer : torrent.getPeers())
+							//Dropping the connection if invalid name length
+							if (buffer.get() != 19)
 							{
-								if(Arrays.equals(peer.getPeerID(), peerID))
+								selected.cancel();
+								continue;
+							}
+						
+							//Dropping the connection if invalid protocol name
+							byte[] name = new byte[19];
+							buffer.get(name);
+							for (int b = 0; b < 19; b++)
+							{
+								if (protocolName[b] != name[b])
 								{
 									selected.cancel();
 									continue;
 								}
 							}
+						
+							//Skipping over the next 8 reserved bytes
+							buffer.getDouble();
+						
+							//Getting the info hash and peer ID
+							byte[] infoHash = new byte[20];
+							byte[] peerID = new byte[20];
+							buffer.get(infoHash);
+							buffer.get(peerID);
+		
+							//Checking to make sure a current torrent matches it
+							if (torrents.containsKey(infoHash))
+							{
+								Torrent torrent = ((Torrent)torrents.get(infoHash));
 							
-							//Giving the peer to the torrent to handle
-							selected.cancel();
-							torrent.addPeer(new Peer(torrent, peerID, incSock), true);
+								//Dropping the connection if the peer ID matches a current peer's peer ID
+								for (Peer peer : torrent.getPeers())
+								{
+									if(Arrays.equals(peer.getPeerID(), peerID))
+									{
+										selected.cancel();
+										continue;
+									}
+								}
+							
+								//Giving the peer to the torrent to handle
+								selected.cancel();
+								torrent.addPeer(new Peer(torrent, peerID, incSock), true);
+							}
+							//Dropping the connection if no torrent matches it
+							else
+							{
+								selected.cancel();
+								continue;
+							}
 						}
-						//Dropping the connection if no torrent matches it
-						else
-						{
-							selected.cancel();
-							continue;
-						}
+					}
+					catch (Exception e)
+					{
+						selected.cancel();
+						return;
 					}
 				}
 			}
 			catch (Exception e)
 			{
+//				System.out.println("Exception: " + e);
+//				e.printStackTrace();
+				return;
 			}
 		}
 	}
@@ -301,12 +320,11 @@ public class Main
 							{
 								if (c == 0)
 									filePath = new String(paths.get(c).getBytes());
-								else if (c != paths.size() - 1)
+								else
 									filePath += "/" + new String(paths.get(c).getBytes());
 							}
-
+							
 							fileInfo.setName(filePath);
-
 
 							//File size
 							fileInfo.setFileLength(fileDictionaryMap.get("length").getInt());
@@ -441,26 +459,18 @@ public class Main
 		////////////////////////////////////////////////////////////////
 		////////////////////////////////////////////////////////////////
 		
-		//TODO: Starting a new thread for the torrent
-		/*
+		//Starting a new thread for the torrent
+		final Info torrentInfo = info;
 		new Thread(new Runnable()
 		{
 			public void run()
 			{
-				Torrent torrent = new Torrent(info, 6881);
+				Torrent torrent = new Torrent(torrentInfo, 6881);
 		
-				torrents.put(info.getInfoHash(), torrent);
+				torrents.put(torrentInfo.getInfoHash(), torrent);
 				
 				torrent.start();
 			}
 		}).start();
-		*/
-		
-		Torrent torrent = new Torrent(info, 6881);
-		
-		torrents.put(info.getInfoHash(), torrent);
-		
-		torrent.start();
-
 	}
 }
