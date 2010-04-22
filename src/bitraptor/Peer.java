@@ -71,13 +71,11 @@ public class Peer implements Comparable
 	private ByteBuffer meBlockBuffer;
 	boolean isReceivingBlock; 
 	
-	//Constructor for incoming peers
 	public Peer(Torrent torrent, byte[] peerID, SocketChannel sock)
 	{
 		this(torrent, peerID, sock, (InetSocketAddress)(sock.socket().getRemoteSocketAddress()));
 	}
 	
-	//Constructor for outgoing peers
 	public Peer(Torrent torrent, byte[] peerID, String IPAddr, int port)
 	{
 		this(torrent, peerID, (SocketChannel)null, new InetSocketAddress(IPAddr, port));
@@ -95,9 +93,9 @@ public class Peer implements Comparable
 		peerChoking = true;
 		peerInterested = false;
 		pieces = new BitSet(info.getPieces().length / 20);
-		readBuffer = ByteBuffer.allocateDirect(4096);
-		writeBuffer = ByteBuffer.allocateDirect(4096);
-		writeMsgBuffer = ByteBuffer.allocateDirect(4096);
+		readBuffer = ByteBuffer.allocateDirect(8192);
+		writeBuffer = ByteBuffer.allocateDirect(8192);
+		writeMsgBuffer = ByteBuffer.allocateDirect(1024);
 		readBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeMsgBuffer.order(ByteOrder.BIG_ENDIAN);
@@ -113,7 +111,10 @@ public class Peer implements Comparable
 		meBlockBuffer = null;
 		isReceivingBlock = false;
 	}
-	
+
+	/**
+		Connects to the peer by opening a TCP connection (non blocking)
+	*/
 	public void connect() throws IOException
 	{
 		//Setting up the socket connection if necessary
@@ -125,22 +126,38 @@ public class Peer implements Comparable
 			sock.connect(sockAddr);
 		}
 	}
-	
+
+	/**
+		Gets the peer ID for the peer
+		@return the peer ID
+	*/
 	public byte[] getPeerID()
 	{
 		return peerID;
 	}
-	
+
+	/**
+		Gets the socket channel for the peer connection
+		@return the socket channel
+	*/
 	public SocketChannel getSocket()
 	{
 		return sock;
 	}
-	
+
+	/**
+		Gets the socket address for the remote peer
+		@return the remote socket address
+	*/
 	public InetSocketAddress getSockAddr()
 	{
 		return sockAddr;
 	}
-	
+
+	/**
+		Sets if we are choking or unchoking the peer (and sends the peer a message)
+		@param choking if we are choking the peer
+	*/
 	public void setChoking(boolean choking)
 	{
 		if (choking && !meChoking)
@@ -154,7 +171,11 @@ public class Peer implements Comparable
 	
 		meChoking = choking;
 	}
-	
+
+	/**
+		Sets if we are interested or uninterested in the peer (and sends the peer a message)
+		@param interested if we are interested in the peer
+	*/
 	public void setInterested(boolean interested)
 	{
 		if (interested && !meInterested)
@@ -168,82 +189,144 @@ public class Peer implements Comparable
 		
 		meInterested = interested;
 	}
-	
+
+	/**
+		Gets if we are choking the peer
+		@return if we are choking the peer
+	*/
 	public boolean isChoking()
 	{
 		return meChoking;
 	}
-	
+
+	/**
+		Gets if we are interested in the peer
+		@return if we are interested in the peer
+	*/
 	public boolean isInterested()
 	{
 		return meInterested;
 	}
-	
+
+	/**
+		Sets whether the peer is choking us or not
+		@param interested if the peer is interested in us
+	*/
 	public void setPeerChoking(boolean choking)
 	{
 		peerChoking = choking;
 	}
-	
+
+	/**
+		Sets whether the peer is interested in us or not
+		@param interested if the peer is interested in us
+	*/
 	public void setPeerInterested(boolean interested)
 	{
 		peerInterested = interested;
 	}
-	
+
+	/**
+		Gets if the peer is choking us
+		@return if we are being choked
+	*/
 	public boolean isPeerChoking()
 	{
 		return peerChoking;
 	}
-	
+
+	/**
+		Gets if the peer is interested in us
+		@return if the peer is interested in us
+	*/
 	public boolean isPeerInterested()
 	{
 		return peerInterested;
 	}
-	
+
+	/**
+		Gets the BitSet for the pieces the peer has
+		@return BitSet of peer pieces
+	*/
 	public BitSet getPieces()
 	{
 		return pieces;
 	}
-	
+
+	/**
+		Gets the read buffer for reading in data
+		@return read buffer
+	*/
 	public ByteBuffer getReadBuffer()
 	{
 		return readBuffer;
 	}
-	
+
+	/**
+		Gets the read buffer for reading in data
+		@return read buffer
+	*/
 	public ByteBuffer getWriteBuffer()
 	{
 		return writeBuffer;
 	}
-	
+
+	/**
+		Checks if the peer is currently handling any requests (sent or not)
+		@return if handling any requests
+	*/
 	public boolean isHandlingRequest()
 	{
 		return ((meRequests.size() > 0) || (meSentRequests.size() > 0));
 	}
-	
+
+	/**
+		Gets the total amount of data uploaded to the peer since last reset
+		@return uploaded total
+	*/
 	public int getUploaded()
 	{
 		return uploaded;
 	}
-	
+
+	/**
+		Resets the upload total
+	*/
 	public void resetUploaded()
 	{
 		uploaded = 0;
 	}
-	
+
+	/**
+		Gets the total amount of data downloaded the peer since last reset
+		@return downloaded total
+	*/
 	public int getDownloaded()
 	{
 		return downloaded;
 	}
-	
+
+	/**
+		Resets the download total
+	*/
 	public void resetDownloaded()
 	{
 		downloaded = 0;
 	}
-	
+
+	/**
+		Gets the number of requests currently being handled
+		@return number of requests being handled
+	*/
 	public int getNumRequests()
 	{
 		return meRequests.size() + meSentRequests.size();
 	}
-	
+
+	/**
+		Adding a request to the queue if not already in queue or sent
+		@param request request to add
+	*/
 	public void addRequest(Request request)
 	{
 		if((!meRequests.contains(request)) && (!meSentRequests.contains(request)))
@@ -251,17 +334,29 @@ public class Peer implements Comparable
 			meRequests.add(request);
 		}
 	}
-	
+
+	/**
+		Getting the queued requests
+		@return queued requests
+	*/
 	public LinkedList<Request> getRequests()
 	{
 		return meRequests;
 	}
-	
+
+	/**
+		Getting the requests that were sent to the peer
+		@return sent requests
+	*/
 	public LinkedList<Request> getSentRequests()
 	{
 		return meSentRequests;
 	}
-	
+
+	/**
+		Removing a request from either the peer (cancel message) or queue
+		@param request request to remove
+	*/
 	public void removeRequest(Request request)
 	{
 		meRequests.remove(request);
@@ -276,7 +371,10 @@ public class Peer implements Comparable
 			writeMessage(MessageType.CANCEL, payload);
 		}
 	}
-	
+
+	/**
+		Randomizing the order of the requests in the queue
+	*/
 	public void shuffleRequests()
 	{
 		Collections.shuffle(meRequests);
@@ -307,7 +405,12 @@ public class Peer implements Comparable
 		
 		return 0;
 	}
-	
+
+	/**
+		Writing a message to the message buffer
+		@param type type of message
+		@param payload payload for the message
+	*/
 	public void writeMessage(MessageType type, ByteBuffer payload)
 	{
 		if (payload != null)
@@ -322,7 +425,10 @@ public class Peer implements Comparable
 			writeMsgBuffer.putInt(1).put((byte)type.valueOf());
 		}
 	}
-	
+
+	/**
+		Checking the handshake message that was sent from the peer to ensure validity
+	*/
 	public boolean checkHandshake() throws Exception
 	{
 		//Flipping the buffer to read the data
@@ -376,31 +482,10 @@ public class Peer implements Comparable
 	}
 	
 	/**
-		Sets up the write buffer based on messages or piece data
+		Sets up the write buffer based on messages or piece data. Also sends requests if needed to the peer
 	*/
 	public void setupWrites() throws Exception
 	{
-		//Sending up to 2 requests to the peer if possible and none were sent yet still unfulfilled
-		if((meSentRequests.size() == 0) && (meRequests.size() > 0))
-		{
-			int requestsToSend = Math.min(2, meRequests.size());
-			for (int r = 0; r < requestsToSend; r++)
-			{
-				Request newRequest = meRequests.remove();
-	
-				ByteBuffer header = ByteBuffer.allocate(12);
-				header.order(ByteOrder.BIG_ENDIAN);
-				header.putInt(newRequest.getPieceIndex());
-				header.putInt(newRequest.getBlockOffset());
-				header.putInt(newRequest.getBlockLength());
-
-				writeMessage(MessageType.REQUEST, header);
-	
-				meSentRequests.add(newRequest);
-			
-//				System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
-			}
-		}
 		
 		//Currently sending a block to the peer, so copy data from the bock buffer
 		if (isSendingBlock)
@@ -424,6 +509,28 @@ public class Peer implements Comparable
 		//Not sending a block
 		else
 		{
+			//Sending up to 2 requests to the peer if possible and none were sent yet still unfulfilled
+			if((!peerChoking) && (meSentRequests.size() == 0) && (meRequests.size() > 0))
+			{
+				int requestsToSend = Math.min(2, meRequests.size());
+				for (int r = 0; r < requestsToSend; r++)
+				{
+					Request newRequest = meRequests.remove();
+
+					ByteBuffer header = ByteBuffer.allocate(12);
+					header.order(ByteOrder.BIG_ENDIAN);
+					header.putInt(newRequest.getPieceIndex());
+					header.putInt(newRequest.getBlockOffset());
+					header.putInt(newRequest.getBlockLength());
+
+					writeMessage(MessageType.REQUEST, header);
+
+					meSentRequests.add(newRequest);
+
+//					System.out.println("[SEND REQUEST] Piece #" + newRequest.getPieceIndex() + " block offset " + newRequest.getBlockOffset());
+				}
+			}
+
 			//There is a queued request from the peer
 			curPeerRequest = peerRequests.poll(); 
 			if (curPeerRequest != null)
@@ -752,6 +859,4 @@ public class Peer implements Comparable
 		hash = 53 * hash + Arrays.hashCode(peerID);
 		return hash;
 	}
-
-	
 }
