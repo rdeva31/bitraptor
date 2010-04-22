@@ -18,17 +18,15 @@ public class Main
 	private static ServerSocketChannel sock;
 	private static Selector select;
 	private static HashMap<byte[], Torrent> torrents = new HashMap<byte[], Torrent>();
-	private static ByteBuffer buffer;
+	private static HashMap<SocketChannel, ByteBuffer> buffers = new HashMap<SocketChannel, ByteBuffer>();
 
 	/**
 		Starts the BitRaptor program.  No arguments required.
 	 */
 	public static void main(String[] args)
 	{
-		System.out.println("BitRaptor");
+		System.out.println("BitRaptor -- A bittorrent client");
 		System.out.println("(Type 'help' to see available commands)");
-		
-		buffer = ByteBuffer.allocate(68);
 		
 		//Starting up the main socket server (not blocking) to listen for incoming peers
 		try
@@ -37,12 +35,11 @@ public class Main
 			sock = ServerSocketChannel.open();
 			sock.configureBlocking(false);
 			sock.socket().setReuseAddress(true);
-			sock.socket().bind(new InetSocketAddress(6881)); 
+			sock.socket().bind(new InetSocketAddress(6881));
 		}
 		catch (Exception e)
 		{
 			sock = null;
-			
 			System.out.println("ERROR: Could not open up socket server, will not receive incoming connections from peers.");
 		}
 			
@@ -79,7 +76,7 @@ public class Main
 					else if (command[0].equalsIgnoreCase("download") || command[0].equalsIgnoreCase("dl") || command[0].equalsIgnoreCase("steal"))
 					{
 						//No torrent file specified
-						if (command[1] == null)
+						if (command.length != 2 || command[1] == null)
 						{
 							System.out.println("Usage: " + command[0] + " <Torrent File>");
 						}
@@ -100,8 +97,6 @@ public class Main
 			}
 			catch (IOException e)
 			{
-				System.out.println("IOEXCEPTION: " + e);
-				e.printStackTrace();
 			}
 			
 			//Accept any new incoming peer connections
@@ -111,6 +106,8 @@ public class Main
 				{
 					incSock.configureBlocking(false);
 					incSock.register(select, SelectionKey.OP_READ);
+
+					buffers.put(incSock, ByteBuffer.allocate(68));
 					
 //					System.out.println("[INC] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 				}
@@ -130,90 +127,95 @@ public class Main
 				{
 					SelectionKey selected = (SelectionKey)it.next();
 					it.remove();
-					
-					try
+
+					//Handling the read
+					if (selected.isValid() && selected.isReadable())
 					{
-						//Handling the read
-						if (selected.isReadable())
+						incSock = (SocketChannel)selected.channel();
+						ByteBuffer buffer = buffers.get(incSock);
+
+						//Reading from the socket and continuing on if not at end of stream / full buffer
+						if (incSock.read(buffer) != -1 || buffer.hasRemaining())
 						{
-							incSock = (SocketChannel)selected.channel();
-						
-							//Reading from the socket till end of stream or 68 bytes (length of handshake message) BLOCKING
-							buffer.clear();
-							while (incSock.read(buffer) != -1)
-							{
-							}
-						
-//							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
-						
-							//Dropping the connection if invalid message length
-							if (buffer.position() != 68)
-							{
-								selected.cancel();
-								continue;
-							}
-						
-							buffer.flip();
-						
-							//Dropping the connection if invalid name length
-							if (buffer.get() != 19)
-							{
-								selected.cancel();
-								continue;
-							}
-						
-							//Dropping the connection if invalid protocol name
-							byte[] name = new byte[19];
-							buffer.get(name);
-							for (int b = 0; b < 19; b++)
-							{
-								if (protocolName[b] != name[b])
-								{
-									selected.cancel();
-									continue;
-								}
-							}
-						
-							//Skipping over the next 8 reserved bytes
-							buffer.getDouble();
-						
-							//Getting the info hash and peer ID
-							byte[] infoHash = new byte[20];
-							byte[] peerID = new byte[20];
-							buffer.get(infoHash);
-							buffer.get(peerID);
-		
-							//Checking to make sure a current torrent matches it
-							if (torrents.containsKey(infoHash))
-							{
-								Torrent torrent = ((Torrent)torrents.get(infoHash));
-							
-								//Dropping the connection if the peer ID matches a current peer's peer ID
-								for (Peer peer : torrent.getPeers())
-								{
-									if(Arrays.equals(peer.getPeerID(), peerID))
-									{
-										selected.cancel();
-										continue;
-									}
-								}
-							
-								//Giving the peer to the torrent to handle
-								selected.cancel();
-								torrent.addPeer(new Peer(torrent, peerID, incSock), true);
-							}
-							//Dropping the connection if no torrent matches it
-							else
+							continue;
+						}
+
+						System.out.println("[INC]");
+
+						//Dropping the connection if invalid message length
+						if (buffer.position() != 68)
+						{
+							System.out.println("[INC FAIL LENGTH]");
+							selected.cancel();
+							continue;
+						}
+
+						buffer.flip();
+
+						//Dropping the connection if invalid name length
+						if (buffer.get() != 19)
+						{
+							System.out.println("[INC FAIL PROTO LENGTH]");
+							selected.cancel();
+							continue;
+						}
+
+						//Dropping the connection if invalid protocol name
+						byte[] name = new byte[19];
+						buffer.get(name);
+						for (int b = 0; b < 19; b++)
+						{
+							System.out.println("[INC FAIL PROTO]");
+							if (protocolName[b] != name[b])
 							{
 								selected.cancel();
 								continue;
 							}
 						}
-					}
-					catch (Exception e)
-					{
-						selected.cancel();
-						return;
+
+						//Skipping over the next 8 reserved bytes
+						buffer.getDouble();
+
+						//Getting the info hash and peer ID
+						byte[] infoHash = new byte[20];
+						byte[] peerID = new byte[20];
+						buffer.get(infoHash);
+						buffer.get(peerID);
+
+						//Checking to make sure a current torrent matches it
+						if (torrents.containsKey(infoHash))
+						{
+							Torrent torrent = ((Torrent)torrents.get(infoHash));
+
+							//Dropping the connection if the peer ID matches a current peer's peer ID
+							boolean validPeerID = true;
+							for (Peer peer : torrent.getPeers())
+							{
+								if(Arrays.equals(peer.getPeerID(), peerID))
+								{
+									validPeerID = false;
+									break;
+								}
+							}
+
+							if (!validPeerID)
+							{
+								selected.cancel();
+								continue;
+							}
+
+							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
+
+							//Giving the peer to the torrent to handle
+							selected.cancel();
+							torrent.addPeer(new Peer(torrent, peerID, incSock), true);
+						}
+						//Dropping the connection if no torrent matches it
+						else
+						{
+							selected.cancel();
+							continue;
+						}
 					}
 				}
 			}
@@ -221,7 +223,6 @@ public class Main
 			{
 //				System.out.println("Exception: " + e);
 //				e.printStackTrace();
-				return;
 			}
 		}
 	}
