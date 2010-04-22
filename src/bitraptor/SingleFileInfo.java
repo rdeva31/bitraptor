@@ -5,7 +5,7 @@ import java.io.*;
 import java.nio.*;
 
 /**
- *
+ * SingleFileInfo performs operations on torrents that use the single file mode.
  * @author rdeva
  */
 public class SingleFileInfo extends Info
@@ -91,11 +91,17 @@ public class SingleFileInfo extends Info
 		try
 		{
 			finish();
+			//create the directory
+			if (name.lastIndexOf('/') != -1)
+			{
+				String directory = name.substring(0, name.lastIndexOf('/'));
+				new File(directory).mkdirs();
+			}
 			file = new RandomAccessFile(name, "rw");
 		}
 		catch (Exception e)
 		{
-			e.printStackTrace();
+//			e.printStackTrace();
 		}
 	}
 
@@ -124,6 +130,11 @@ public class SingleFileInfo extends Info
 			return false;
 		}
 		return true;
+	}
+	
+	RandomAccessFile getFile()
+	{
+		return file;
 	}
 
 	@Override

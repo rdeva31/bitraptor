@@ -5,7 +5,8 @@ import java.io.*;
 import java.nio.*;
 
 /**
- *
+ * MultiFileInfo is used to represent torrents that use multiple files.  It is essentially
+ * a list of SingleFileInfo classes, with operations performed upon them.
  * @author rdeva
  */
 public class MultiFileInfo extends Info
@@ -58,6 +59,10 @@ public class MultiFileInfo extends Info
 		return files;
 	}
 
+	/**
+	 * Sets the files associated with this torrent
+	 * @param files list of files associated with this torrent
+	 */
 	public void setFiles(List<SingleFileInfo> files)
 	{
 		this.files = files;
@@ -118,199 +123,104 @@ public class MultiFileInfo extends Info
 	}
 	
 	public ByteBuffer readPiece(int pieceIndex) throws Exception
-	{			
-		int cumulativeFileSizeTotal = 0;
-		int pieceSize = getPieceLength();
-		int limit = pieceIndex * pieceSize;
-		String fileToRead = null;
-		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
-		ByteBuffer b = ByteBuffer.allocate(pieceSize);
-		
-		
-		while (fileQueue.peek() != null)
-		{
-			SingleFileInfo popped = fileQueue.poll();
-			SingleFileInfo next = fileQueue.peek();
-			
-			cumulativeFileSizeTotal += popped.getFileLength();
-			
-			if (cumulativeFileSizeTotal == limit) //the next file(s) have the piece
-			{
-				//read the shit
-				int bytesRead = 0;
-				while (bytesRead != pieceSize)
-				{
-					next = fileQueue.poll();
-					File f = new File(next.getName());
-					if (f.length() > pieceSize - bytesRead) //rest of piece is in here
-					{
-						byte[] buffer = new byte[pieceSize - bytesRead];
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead = pieceSize;
-						b.put(buffer);
-					}
-					else //part of piece is in this file
-					{
-						byte[] buffer = new byte[(int)f.length()];
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead += buffer.length;
-						b.put(buffer);
-					}
-					
-				}
-				break;
-			}
-			else if (cumulativeFileSizeTotal + next.getFileLength() > limit) // the next file overlaps over the piece
-			{
-				//read the shit
-				int previousLimit = (pieceIndex - 1) * pieceSize;
-				int contentsInLastPiece = cumulativeFileSizeTotal - previousLimit;//this is the amount of the file in the previous piece
-				
-				next = fileQueue.poll();
-				next.getInputStream().skip(contentsInLastPiece);
-				
-				int bytesRead = 0;
-				byte[] buffer = new byte[pieceSize];
-				
-				bytesRead = next.getInputStream().read(buffer);
-				b.put(buffer);
-				
-				while (bytesRead != pieceSize)
-				{
-					next = fileQueue.poll();
-					File f = new File(next.getName());
-					if (f.length() > pieceSize - bytesRead) //rest of piece is in here
-					{
-						buffer = new byte[pieceSize - bytesRead];
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead = pieceSize;
-						b.put(buffer);
-					}
-					else //part of piece is in this file
-					{
-						buffer = new byte[(int)f.length()];
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead += buffer.length;
-						b.put(buffer);
-					}
-					
-				}
-				
-				break;
-			}
-		}
-		
-		return b;
+	{
+		return readBlock(pieceIndex, 0, getPieceLength());
 	}
 	
 	public ByteBuffer readBlock(int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
-		int pieceSize = getPieceLength();
-		ByteBuffer b = readPiece(pieceIndex);
+		int limit = pieceIndex * getPieceLength() + blockOffset;
+		int cumulativeFileSize = 0;
+		ByteBuffer buffer = ByteBuffer.allocate(blockLength);
+		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
+
 		
-		byte[] toWaste = new byte[blockOffset];
-		byte[] useful = new byte[blockLength];
-		b.get(toWaste);
-		b.get(useful);
-		
-		return ByteBuffer.allocate(blockLength).put(useful);
-		
+		for (SingleFileInfo f = fileQueue.poll(); f != null; f = fileQueue.poll())
+		{
+			if (cumulativeFileSize + f.getFileLength() > limit) 
+			{
+				//now skip reading limit - cumulativeFileSize
+				RandomAccessFile r = f.getFile();
+				r.skipBytes(limit - cumulativeFileSize);
+				byte[] b = new byte[Math.min(f.getFileLength(), blockLength)];
+				int bytesRead = r.read(b);
+				buffer.put(b, 0, bytesRead);
+				
+				while(bytesRead < blockLength)
+				{
+					f = fileQueue.poll();
+					r = f.getFile();
+					if (f.getFileLength() > blockLength - bytesRead) //rest of the contents are in this file
+						b = new byte[blockLength - bytesRead];
+					else //entire file fits into the block but subsequent files have stuff too
+						b = new byte[f.getFileLength()];
+					
+					int bytesReadTemp = r.read(b);
+					
+					if (bytesReadTemp == -1)
+						throw new java.io.EOFException("didn't expect EOF");
+					
+					bytesRead += bytesReadTemp;
+					buffer.put(b, 0, bytesReadTemp);
+				}
+
+				break;
+			}
+			else
+				cumulativeFileSize += f.getFileLength();
+		}
+
+
+
+		return buffer;
 	}
 	
 	public void writePiece(byte[] data, int pieceIndex) throws Exception
 	{
-		/*if (!(i instanceof MultiFileInfo))
-			throw new Exception("i not of type " + i.getClass().getName());
-		else if (data.length != pieceSize)
-			throw new Exception("data not entire piece");
-			
-		int cumulativeFileSizeTotal = 0;
-		int limit = pieceIndex * pieceSize;
-		String fileToRead = null;
-		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
-		ByteBuffer buffer = ByteBuffer.allocate(pieceSize);
-		buffer.put(data);
-		
-		
-		while (fileQueue.peek() != null)
-		{
-			SingleFileInfo popped = fileQueue.poll();
-			SingleFileInfo next = fileQueue.peek();
-			
-			cumulativeFileSizeTotal += popped.getFileLength();
-			
-			if (cumulativeFileSizeTotal == limit) //the next file(s) have the piece
-			{
-				//read the shit
-				int bytesWritten = 0;
-				while (bytesWritten != pieceLength)
-				{
-					next = fileQueue.poll();
-					File f = new File(next.getName());
-					if (f.length() > pieceLength - bytesWritten) //rest of piece is in here
-					{
-						byte[] b = new byte[pieceLength - bytesWritten];
-						buffer.get(b);
-						next.getOutputStream().write(b, 0, b.length);
-						bytesWritten = pieceLength;
-					}
-					else //part of piece is in this file
-					{
-						byte[] buffer = new byte[f.length()];
-						b.get(buffer);
-						next.getOutputStream().write(b, 0, b.length);
-						bytesRead += b.length;
-					}
-					
-				}
-				break;
-			}
-			else if (cumulativeFileSizeTotal + next.getFileLength() > limit) // the next file overlaps over the piece
-			{
-				//read the shit
-				int previousLimit = (pieceIndex - 1) * pieceSize;
-				int contentsInLastPiece = cumulativeFileSizeTotal - previousLimit;//this is the amount of the file in the previous piece
-				
-				next = fileQueue.poll();
-				
-				int bytesWritten = 0;
-				byte[] b = new byte[new File(next.getName()).length() - contentsInLastPiece];
-				
-				buffer.get(b);
-				next.getOutputStream().write(b, contentsInLastPiece, b.length);
-				
-				bytesWritten = b.length;
-				
-				while (bytesRead != pieceLength)
-				{
-					next = fileQueue.poll();
-					File f = new File(next.getName());
-					if (f.length() > pieceLength - bytesWritten) //rest of piece is in here
-					{
-						
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead = pieceLength;
-						b.put(buffer);
-					}
-					else //part of piece is in this file
-					{
-						byte[] buffer = new byte[f.length()];
-						next.getInputStream().read(buffer, 0, buffer.length);
-						bytesRead += buffer.length;
-						b.put(buffer);
-					}
-					
-				}
-				
-				break;
-			}
-		}*/
-		
-		throw new Exception("unimplemented");
+			writeBlock(data, pieceIndex, 0, getPieceLength());
 	}
 	public void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
-		throw new Exception("unimplemented");
+		int limit = pieceIndex * getPieceLength() + blockOffset;
+		int cumulativeFileSize = 0;
+		ByteBuffer buffer = ByteBuffer.allocate(blockLength);
+		buffer.put(data);
+		buffer.compact();
+		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
+
+
+		for (SingleFileInfo f = fileQueue.poll(); f != null; f = fileQueue.poll())
+		{
+			if (cumulativeFileSize + f.getFileLength() > limit)
+			{
+				//now skip reading limit - cumulativeFileSize
+				RandomAccessFile r = f.getFile();
+				r.seek(limit - cumulativeFileSize);
+				byte[] b = new byte[Math.min(f.getFileLength() - (limit - cumulativeFileSize), blockLength)];
+				int bytesWritten = b.length;
+				buffer.get(b);
+				r.write(b);
+
+				while(bytesWritten < blockLength)
+				{
+					f = fileQueue.poll();
+					r = f.getFile();
+					if (f.getFileLength() > blockLength - bytesWritten) //rest of the contents are in this file
+						b = new byte[blockLength - bytesWritten];
+					else //entire file fits into the block but subsequent files have stuff too
+						b = new byte[f.getFileLength()];
+
+					buffer.get(b);
+					r.write(b);
+
+					bytesWritten += b.length;
+				}
+
+				break;
+			}
+			else
+				cumulativeFileSize += f.getFileLength();
+		}
 	}
 	
 	public void finish() throws Exception
