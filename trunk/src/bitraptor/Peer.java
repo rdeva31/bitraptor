@@ -522,12 +522,15 @@ public class Peer implements Comparable
 			}
 
 			//There is a queued request from the peer
-			curPeerRequest = peerRequests.poll(); 
-			if (curPeerRequest != null)
+			if ((peerRequests.size() > 0) && !meChoking)
 			{
+				curPeerRequest = peerRequests.remove();
+
 				int blockLength = curPeerRequest.getBlockLength();
 				int pieceIndex = curPeerRequest.getPieceIndex();
 				int blockOffset = curPeerRequest.getBlockOffset();
+				
+//				System.out.println("[HANDLING PEER REQUEST] ~");
 			
 				//Reading in the block that the peer wants from the file
 				peerBlockBuffer = info.readBlock(pieceIndex, blockOffset, blockLength);
@@ -540,7 +543,7 @@ public class Peer implements Comparable
 				
 				writeMessage(MessageType.PIECE, header);
 
-				System.out.println("[HANDLING PEER REQUEST]");
+//				System.out.println("[HANDLING PEER REQUEST] !");
 					
 				isSendingBlock = true;
 			}
@@ -647,7 +650,7 @@ public class Peer implements Comparable
 				if ((messageLength - 1) <= readBuffer.remaining() || 
 					((messageID == MessageType.PIECE) && (readBuffer.remaining() >= 8)))
 				{
-					//System.out.println("\tMessage ID: " + messageID);
+//					System.out.println("\tMessage ID: " + messageID);
 				
 					//Handling the message based on the ID
 					switch (messageID)
@@ -693,7 +696,7 @@ public class Peer implements Comparable
 						{
 							int piece = readBuffer.getInt();
 							pieces.set(piece);
-							
+
 							//Advertising interest if it is a piece we do not have / have not requested
 							if(!torrent.getRequestedPieces().get(piece))
 							{
@@ -761,8 +764,8 @@ public class Peer implements Comparable
 							{
 								throw new Exception("Requested blocksize too big");
 							}
-							
-							System.out.println("[PEER REQUEST]");
+
+//							System.out.println("[PEER REQUEST]");
 							
 							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						
