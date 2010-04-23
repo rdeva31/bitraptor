@@ -70,7 +70,7 @@ public class Main
 					//Exit
 					else if (command[0].equalsIgnoreCase("exit") || command[0].equalsIgnoreCase("quit") || command[0].equalsIgnoreCase("bye"))
 					{
-						return;
+						System.exit(0);
 					}
 					//Download
 					else if (command[0].equalsIgnoreCase("download") || command[0].equalsIgnoreCase("dl") || command[0].equalsIgnoreCase("steal"))
@@ -129,33 +129,31 @@ public class Main
 					it.remove();
 
 					//Handling the read
-					if (selected.isValid() && selected.isReadable())
+					if (selected.isReadable())
 					{
 						incSock = (SocketChannel)selected.channel();
 						ByteBuffer buffer = buffers.get(incSock);
 
 						//Reading from the socket and continuing on if not at end of stream / full buffer
-						if (incSock.read(buffer) != -1 || buffer.hasRemaining())
+						if (incSock.read(buffer) > 0 || buffer.hasRemaining())
 						{
 							continue;
 						}
 
-						System.out.println("[INC]");
+//						System.out.println("[INC]");
+
+						buffer.flip();
 
 						//Dropping the connection if invalid message length
-						if (buffer.position() != 68)
+						if (buffer.remaining() != 68)
 						{
-							System.out.println("[INC FAIL LENGTH]");
 							selected.cancel();
 							continue;
 						}
 
-						buffer.flip();
-
 						//Dropping the connection if invalid name length
 						if (buffer.get() != 19)
 						{
-							System.out.println("[INC FAIL PROTO LENGTH]");
 							selected.cancel();
 							continue;
 						}
@@ -165,7 +163,6 @@ public class Main
 						buffer.get(name);
 						for (int b = 0; b < 19; b++)
 						{
-							System.out.println("[INC FAIL PROTO]");
 							if (protocolName[b] != name[b])
 							{
 								selected.cancel();
@@ -186,7 +183,7 @@ public class Main
 						if (torrents.containsKey(infoHash))
 						{
 							Torrent torrent = ((Torrent)torrents.get(infoHash));
-							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
+//							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 
 							//Giving the peer to the torrent to handle
 							selected.cancel();

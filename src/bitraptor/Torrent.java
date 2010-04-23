@@ -263,7 +263,7 @@ public class Torrent
 				receivedPieces.set(pieceIndex);
 				pieces.remove(piece.getPieceIndex());
 				
-				System.out.println("[DOWNLOADED] " + pieceIndex);
+//				System.out.println("[DOWNLOADED] " + pieceIndex);
 				
 				//Sending out HAVE messages to all peers for the new piece
 				ByteBuffer payload = ByteBuffer.allocate(4);
@@ -416,7 +416,7 @@ public class Torrent
 			}
 			
 			//Checking to see if the torrent can start end game mode
-			if (((requestedPieces.cardinality() >= (info.getPieces().length / 20)) && (!inEndGameMode))
+			if (((requestedPieces.cardinality() >= ((double)(info.getPieces().length / 20) * 0.95)) && (!inEndGameMode))
 				|| (inEndGameMode && endGameRequestTimerStatus))
 			{
 				//Previously not in end game mode
@@ -462,6 +462,21 @@ public class Torrent
 
 						//Finding the corresponding piece to the index
 						Piece piece = pieces.get(pieceIndex);
+
+						//If the piece does not exist yet, initialize and store it
+						if (piece == null)
+						{
+							int pieceLength = info.getPieceLength();
+							if (pieceIndex == ((info.getPieces().length / 20) - 1))
+							{
+								pieceLength = info.getFileLength() - (pieceIndex * pieceLength);
+							}
+
+							piece = new Piece(pieceIndex, pieceLength);
+							pieces.put(pieceIndex, piece);
+
+							requestedPieces.set(pieceIndex);
+						}
 
 						//Sending out the requests to all of the peers that have the piece (make sure they know you are interested too)
 						for (Peer peer : peerSet)
@@ -555,10 +570,9 @@ public class Torrent
 						//Finding the optimal piece to request
 						int p = getNextPiece(peer);
 
-						//No piece found that we want to request from peer (also notify that we are no longer interested)
+						//No piece found that we want to request from peer
 						if (p == -1)
 						{
-							//peer.setInterested(false);
 							continue;
 						}
 
@@ -992,7 +1006,7 @@ public class Torrent
 			{
 //				System.out.println("ERROR: Received an invalid response from the tracker");
 //				System.out.println("Will retry in 30 seconds...");
-				e.printStackTrace();
+//				e.printStackTrace();
 				schedule(30);
 			}
 		}
@@ -1041,16 +1055,20 @@ public class Torrent
 				peer.resetUploaded();
 			}
 
-			System.out.println("DL: " + (((double)downloadedTotal / 1024.0) / 10) + " KBps - UP: " + (((double)uploadedTotal / 1024.0) / 10) + " KBps");
+			System.out.println("DL: " + (int)(((double)downloadedTotal / 1024.0) / 10) + " KBps - UP: " + (int)(((double)uploadedTotal / 1024.0) / 10) + " KBps - Downloaded: " + (int)(((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100) +  "%");
 
 			synchronized(uploadSlotActions)
 			{
-				//Choke all seeders, add leechers to new list
 				LinkedList<Peer> leechers = new LinkedList<Peer>();
 
+				//Choking all seeders and non-interested peers
 				for (Peer p : peerList)
 				{
 					if (p.getPieces().cardinality() == (info.getPieces().length / 20))
+					{
+						uploadSlotActions.put(p, true);
+					}
+					else if (!p.isInterested())
 					{
 						uploadSlotActions.put(p, true);
 					}
@@ -1060,14 +1078,16 @@ public class Torrent
 					}
 				}
 
-				//Unchoke top slots-1 peers
+//				System.out.println("Total Interested: " + leechers.size());
+
+				//Unchoke peers up to (slots - 1) total
 				int numUnchoke = Math.min(slots - 1, leechers.size());
 				for (int c = 0; c < numUnchoke; c++)
 				{
 					uploadSlotActions.put(leechers.remove(), false);
 				}
 
-				//Unchoke random peer
+				//Unchoke random peer to fill the final upload slot
 				if (leechers.size() > 0)
 				{
 					Collections.shuffle(leechers);
