@@ -93,14 +93,26 @@ public class Torrent
 	}
 
 	/**
-		Gets the information on the torrent
-		@return torrent information
+		Gets the peers that the torrent currently holds
+		@return peers
 	*/
 	public Collection<Peer> getPeers()
 	{
 		synchronized(peers)
 		{
 			return peers.values();
+		}
+	}
+
+	/**
+		Gets the number of peers the torrent currently holds
+		@return number of peers
+	*/
+	public int getTotalPeers()
+	{
+		synchronized(peers)
+		{
+			return peers.values().size();
 		}
 	}
 
@@ -390,19 +402,13 @@ public class Torrent
 			{
 				synchronized(uploadSlotActions)
 				{
-					try
+					Set<Peer> peerSet = uploadSlotActions.keySet();
+					for (Peer peer : peerSet)
 					{
-						Set<Peer> peerSet = uploadSlotActions.keySet(); 
-						for (Peer peer : peerSet)
-						{
-							peer.setChoking(uploadSlotActions.get(peer));
-						}
-				
-						uploadSlotActions.clear();
+						peer.setChoking(uploadSlotActions.get(peer));
 					}
-					catch (Exception e)
-					{
-					}
+
+					uploadSlotActions.clear();
 				}
 			}
 		
@@ -455,8 +461,9 @@ public class Torrent
 
 					//Going through all of the unfulfilled pieces and adding them to a list
 					int pieceIndex = -1;
+					int totalPieces = info.getPieces().length / 20;
 					LinkedList<Piece> pieceList = new LinkedList<Piece>();
-					while ((pieceIndex = unfulfilledPieces.nextSetBit(pieceIndex + 1)) != -1)
+					while (((pieceIndex = unfulfilledPieces.nextSetBit(pieceIndex + 1)) != -1) && (pieceIndex < totalPieces))
 					{
 //						System.out.println("UNFULFILLED PIECE: " + pieceIndex);
 
@@ -589,7 +596,8 @@ public class Torrent
 			try
 			{
 				//Performing the select
-				handshakeSelect.selectNow();
+				//handshakeSelect.selectNow();
+				handshakeSelect.select(100);
 				Iterator it = handshakeSelect.selectedKeys().iterator();
 				
 				while(it.hasNext())
@@ -688,7 +696,8 @@ public class Torrent
 			try
 			{
 				//Performing the select
-				select.selectNow();
+				//select.selectNow();
+				select.select(100);
 				Iterator it = select.selectedKeys().iterator();
 				
 				while(it.hasNext())
@@ -772,10 +781,21 @@ public class Torrent
 		Attempts to connect to the peer, set up a handshake message, and add it to the appropriate selector
 		@param peer The peer to add
 	*/
-	public void addPeer(Peer peer, boolean incoming)
+	public void addPeer(Peer peer, boolean incoming) throws Exception
 	{
 		synchronized (peers)
 		{
+			//Dropping connection if torrent has more than 50 peers
+			if (peers.values().size() >= 50)
+			{
+				if (incoming)
+				{
+					peer.getSocket().close();
+				}
+				
+				return;
+			}
+			
 			//Making sure that the peer is not already in the list
 			if (!peers.containsValue(peer))
 			{
@@ -847,7 +867,7 @@ public class Torrent
 		*/
 		private void schedule(int seconds)
 		{
-			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
+			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), 60 * 1000);
 		}
 		
 		/**
@@ -1055,7 +1075,7 @@ public class Torrent
 				peer.resetUploaded();
 			}
 
-			System.out.println("DL: " + (int)(((double)downloadedTotal / 1024.0) / 10) + " KBps - UP: " + (int)(((double)uploadedTotal / 1024.0) / 10) + " KBps - Downloaded: " + (int)(((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100) +  "%");
+			System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f %%\n", ((double)downloadedTotal / 1024.0) / 10, ((double)uploadedTotal / 1024.0) / 10, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
 
 			synchronized(uploadSlotActions)
 			{
@@ -1078,7 +1098,7 @@ public class Torrent
 					}
 				}
 
-//				System.out.println("Total Interested: " + leechers.size());
+				System.out.println("Total Interested: " + leechers.size());
 
 				//Unchoke peers up to (slots - 1) total
 				int numUnchoke = Math.min(slots - 1, leechers.size());

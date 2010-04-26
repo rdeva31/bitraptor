@@ -476,25 +476,33 @@ public class Peer implements Comparable
 	*/
 	public void setupWrites() throws Exception
 	{
-		
 		//Currently sending a block to the peer, so copy data from the bock buffer
 		if (isSendingBlock)
 		{
-			peerBlockBuffer.flip();
-			writeBuffer.put(peerBlockBuffer);
+			int startingPosition = peerBlockBuffer.position();
+
+			try
+			{
+				writeBuffer.put(peerBlockBuffer);
+			}
+			catch (BufferOverflowException e)
+			{
+				int prevLimit = peerBlockBuffer.limit();
+				peerBlockBuffer.limit(writeBuffer.remaining());
+				writeBuffer.put(peerBlockBuffer);
+				peerBlockBuffer.limit(prevLimit);
+			}
 			
 			//Adding to uploaded total
-			uploaded += peerBlockBuffer.position();
+			uploaded += (peerBlockBuffer.position() - startingPosition);
 			
 			//No more block data to send, so end the current request
 			if (!peerBlockBuffer.hasRemaining())
 			{
-//				System.out.println("[PEER REQUEST SERVED]");
+				System.out.println("[PEER REQUEST SERVED]");
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
-			
-			peerBlockBuffer.compact();
 		}
 		//Not sending a block
 		else
@@ -529,11 +537,10 @@ public class Peer implements Comparable
 				int blockLength = curPeerRequest.getBlockLength();
 				int pieceIndex = curPeerRequest.getPieceIndex();
 				int blockOffset = curPeerRequest.getBlockOffset();
-				
-//				System.out.println("[HANDLING PEER REQUEST] ~");
 			
 				//Reading in the block that the peer wants from the file
 				peerBlockBuffer = info.readBlock(pieceIndex, blockOffset, blockLength);
+				peerBlockBuffer.flip();
 					
 				//Setting up the header
 				ByteBuffer header = ByteBuffer.allocate(8);
@@ -543,7 +550,7 @@ public class Peer implements Comparable
 				
 				writeMessage(MessageType.PIECE, header);
 
-//				System.out.println("[HANDLING PEER REQUEST] !");
+				System.out.println("[HANDLING PEER REQUEST]");
 					
 				isSendingBlock = true;
 			}
@@ -717,7 +724,7 @@ public class Peer implements Comparable
 							int pieceIndex = 0;
 							for (byte b : bitField)
 							{
-								for (int c = 7; (c > 0) && (pieceIndex < totalPieces); c--)
+								for (int c = 7; (c >= 0) && (pieceIndex < totalPieces); c--)
 								{
 									if ((b & (1 << c)) != 0)
 									{
@@ -765,7 +772,7 @@ public class Peer implements Comparable
 								throw new Exception("Requested blocksize too big");
 							}
 
-//							System.out.println("[PEER REQUEST]");
+							System.out.println("[PEER REQUEST]");
 							
 							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						

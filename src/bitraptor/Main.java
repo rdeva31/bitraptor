@@ -17,7 +17,7 @@ public class Main
 	
 	private static ServerSocketChannel sock;
 	private static Selector select;
-	private static HashMap<byte[], Torrent> torrents = new HashMap<byte[], Torrent>();
+	private static HashMap<String, Torrent> torrents = new HashMap<String, Torrent>();
 	private static HashMap<SocketChannel, ByteBuffer> buffers = new HashMap<SocketChannel, ByteBuffer>();
 
 	/**
@@ -35,7 +35,7 @@ public class Main
 			sock = ServerSocketChannel.open();
 			sock.configureBlocking(false);
 			sock.socket().setReuseAddress(true);
-			sock.socket().bind(new InetSocketAddress(6881));
+			sock.socket().bind(new InetSocketAddress(45507));
 		}
 		catch (Exception e)
 		{
@@ -120,7 +120,8 @@ public class Main
 			try
 			{
 				//Performing the select
-				select.selectNow();
+				//select.selectNow();
+				select.select(100);
 				Iterator it = select.selectedKeys().iterator();
 				
 				while(it.hasNext())
@@ -135,26 +136,19 @@ public class Main
 						ByteBuffer buffer = buffers.get(incSock);
 
 						//Reading from the socket and continuing on if not at end of stream / full buffer
-						if (incSock.read(buffer) > 0 || buffer.hasRemaining())
+						incSock.read(buffer);
+						if (buffer.hasRemaining())
 						{
 							continue;
 						}
-
-//						System.out.println("[INC]");
 
 						buffer.flip();
-
-						//Dropping the connection if invalid message length
-						if (buffer.remaining() != 68)
-						{
-							selected.cancel();
-							continue;
-						}
 
 						//Dropping the connection if invalid name length
 						if (buffer.get() != 19)
 						{
 							selected.cancel();
+							incSock.close();
 							continue;
 						}
 
@@ -166,6 +160,7 @@ public class Main
 							if (protocolName[b] != name[b])
 							{
 								selected.cancel();
+								incSock.close();
 								continue;
 							}
 						}
@@ -180,9 +175,10 @@ public class Main
 						buffer.get(peerID);
 
 						//Checking to make sure a current torrent matches it
-						if (torrents.containsKey(infoHash))
+						if (torrents.containsKey(new String(infoHash)))
 						{
-							Torrent torrent = ((Torrent)torrents.get(infoHash));
+							Torrent torrent = ((Torrent)torrents.get(new String(infoHash)));
+
 //							System.out.println("[INC HANDSHAKE] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 
 							//Giving the peer to the torrent to handle
@@ -193,6 +189,7 @@ public class Main
 						else
 						{
 							selected.cancel();
+							incSock.close();
 							continue;
 						}
 					}
@@ -445,9 +442,9 @@ public class Main
 		{
 			public void run()
 			{
-				Torrent torrent = new Torrent(torrentInfo, 6881);
+				Torrent torrent = new Torrent(torrentInfo, 45507);
 		
-				torrents.put(torrentInfo.getInfoHash(), torrent);
+				torrents.put(new String(torrentInfo.getInfoHash()), torrent);
 				
 				torrent.start();
 			}
