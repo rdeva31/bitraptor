@@ -23,7 +23,7 @@ public class Main
 	/**
 		Starts the BitRaptor program.  No arguments required.
 	 */
-	public static void main(String[] args)
+	public static void main(String[] args) throws Exception
 	{
 		System.out.println("BitRaptor -- A bittorrent client");
 		System.out.println("(Type 'help' to see available commands)");
@@ -200,6 +200,9 @@ public class Main
 //				System.out.println("Exception: " + e);
 //				e.printStackTrace();
 			}
+
+			//Sleep for 50 ms since this loop does not require high speed
+			Thread.sleep(50);
 		}
 	}
 	
@@ -284,6 +287,7 @@ public class Main
 						infoAlias.setFiles(new ArrayList<SingleFileInfo>());
 						
 						List<BEValue> fileDictionaries = infoDictionary.get("files").getList();
+						LinkedList<SingleFileInfo> files = new LinkedList<SingleFileInfo>();
 						for (BEValue fileDictionary : fileDictionaries)
 						{
 							Map<String, BEValue> fileDictionaryMap = fileDictionary.getMap();
@@ -313,9 +317,10 @@ public class Main
 							}
 
 							//Adding the file to the directory
-							infoAlias.getFiles().add(fileInfo);
+							files.add(fileInfo);
 						}
-						
+
+						infoAlias.setFiles(files);
 					}
 					//Single File Mode
 					else if (infoDictionary.containsKey("length"))
