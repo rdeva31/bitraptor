@@ -336,6 +336,21 @@ public class Peer implements Comparable
 	}
 
 	/**
+		Adding a collection of requests to the queue if not already in queue or sent
+		@param requests requests to add
+	*/
+	public void addRequests(Collection<Request> requests)
+	{
+		for (Request request : requests)
+		{
+			if((!meRequests.contains(request)) && (!meSentRequests.contains(request)))
+			{
+				meRequests.add(request);
+			}
+		}
+	}
+
+	/**
 		Getting the queued requests
 		@return queued requests
 	*/
@@ -407,8 +422,6 @@ public class Peer implements Comparable
 		{
 			payload.flip();
 			writeMsgBuffer.putInt(1 + payload.remaining()).put((byte)type.valueOf()).put(payload);
-			payload.rewind();
-			payload.compact();
 		}
 		else
 		{
@@ -459,7 +472,8 @@ public class Peer implements Comparable
 		}
 		
 		//Dropping the connection if the peer ID matches a current peer's peer ID
-		for (Peer peer : torrent.getPeers())
+		LinkedList<Peer> peerSet = torrent.getPeers();
+		for (Peer peer : peerSet)
 		{
 			if((peer != this) && (Arrays.equals(peer.getPeerID(), peerID)))
 			{
@@ -499,7 +513,7 @@ public class Peer implements Comparable
 			//No more block data to send, so end the current request
 			if (!peerBlockBuffer.hasRemaining())
 			{
-				System.out.println("[PEER REQUEST SERVED]");
+//				System.out.println("[PEER REQUEST SERVED]");
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
@@ -550,14 +564,26 @@ public class Peer implements Comparable
 				
 				writeMessage(MessageType.PIECE, header);
 
-				System.out.println("[HANDLING PEER REQUEST]");
+//				System.out.println("[HANDLING PEER REQUEST]");
 					
 				isSendingBlock = true;
 			}
 			
 			//Copy messages from the message buffer to the write buffer
 			writeMsgBuffer.flip();
-			writeBuffer.put(writeMsgBuffer);
+
+			try
+			{
+				writeBuffer.put(writeMsgBuffer);
+			}
+			catch (BufferOverflowException e)
+			{
+				int prevLimit = writeMsgBuffer.limit();
+				writeMsgBuffer.limit(writeBuffer.remaining());
+				writeBuffer.put(writeMsgBuffer);
+				writeMsgBuffer.limit(prevLimit);
+			}
+
 			writeMsgBuffer.compact();
 		}
 	}
@@ -772,7 +798,7 @@ public class Peer implements Comparable
 								throw new Exception("Requested blocksize too big");
 							}
 
-							System.out.println("[PEER REQUEST]");
+//							System.out.println("[PEER REQUEST]");
 							
 							peerRequests.add(new Request(null, pieceIndex, blockOffset, blockLength));
 						

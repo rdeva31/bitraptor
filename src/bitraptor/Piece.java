@@ -64,6 +64,52 @@ public class Piece
 	}
 
 	/**
+	 * Gets a list of all unfulfilled requests so that peers can process them
+	 * @param blockSize size of block requests
+	 * @return a linkedlist of unfulfilled requests
+	 */
+	public LinkedList<Request> getUnfulfilledRequests(int blockSize)
+	{
+		LinkedList<Request> requests = new LinkedList<Request>();
+
+		//Finding the next start of unfulfilled bytes
+		int index = 0;
+		while(((index = bytesReceived.nextClearBit(index)) != -1) && (index < pieceLength))
+		{
+			int endIndex = bytesReceived.nextSetBit(index);
+
+			//No next set bit, so set to length of the piece
+			if (endIndex == -1)
+			{
+				endIndex = pieceLength;
+			}
+
+			//Adding block requests as needed
+			for (int c = index; c < endIndex; c += blockSize)
+			{
+				if (c + blockSize > pieceLength)
+				{
+					requests.add(new Request(this, pieceIndex, c, pieceLength - c));
+				}
+				else
+				{
+					requests.add(new Request(this, pieceIndex, c, blockSize));
+				}
+			}
+			
+			index = endIndex;
+
+			//Reached the end of the bitset
+			if (index >= pieceLength)
+			{
+				break;
+			}
+		}
+
+		return requests;
+	}
+
+	/**
 	 * Returns the entire piece
 	 * @return an array of pieceSize bytes
 	 */
