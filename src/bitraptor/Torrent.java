@@ -47,8 +47,6 @@ public class Torrent
 	{
 		this.port = port;
 		this.info = info;
-
-		System.out.println("LENGTH: " + info.getFileLength());
 	
 		//Creating a random peer ID (BRXXX...)
 		peerID = new byte[20];
@@ -273,6 +271,7 @@ public class Torrent
 			catch (Exception e)
 			{
 				System.out.println("ERROR: Could not write piece to file");
+				e.printStackTrace();
 				System.exit(-1);
 			}
 
@@ -443,7 +442,6 @@ public class Torrent
 					//If the piece does not exist yet, initialize and store it
 					if (piece == null)
 					{
-						System.out.println("PIECE: " + pieceIndex);
 						int pieceLength = info.getPieceLength();
 						if (pieceIndex == ((info.getPieces().length / 20) - 1))
 						{
@@ -852,7 +850,7 @@ public class Torrent
 		*/
 		private void schedule(int seconds)
 		{
-			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), 60 * 1000);
+			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
 		}
 		
 		/**
