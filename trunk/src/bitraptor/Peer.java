@@ -92,7 +92,7 @@ public class Peer implements Comparable
 		meInterested = false;
 		peerChoking = true;
 		peerInterested = false;
-		pieces = new BitSet(info.getPieces().length / 20);
+		pieces = new BitSet(info.getTotalPieces());
 		readBuffer = ByteBuffer.allocateDirect(8192);
 		writeBuffer = ByteBuffer.allocateDirect(8192);
 		writeMsgBuffer = ByteBuffer.allocateDirect(1024);
@@ -746,7 +746,7 @@ public class Peer implements Comparable
 							pieces.clear();
 							
 							//Initializing the bitfield based off of the bytes
-							int totalPieces = info.getPieces().length / 20;
+							int totalPieces = info.getTotalPieces();
 							int pieceIndex = 0;
 							for (byte b : bitField)
 							{

@@ -27,7 +27,10 @@ public class Torrent
 	private LinkedList<Request> requestPool;
 	private State state = State.STARTED;
 	private boolean inEndGameMode;
-	
+
+	private Timer announcerTimer;
+
+	private final int SEEDING_SLOT_ASSIGN_TIMER_PERIOD = 30*1000; //in milliseconds
 	private final int SLOT_ASSIGN_TIMER_PERIOD = 10*1000; //in milliseconds
 	private final int NUM_UPLOAD_SLOTS = 5; //number of upload slots
 	private final int BLOCK_SIZE = 16*1024;
@@ -65,8 +68,8 @@ public class Torrent
 		peers = new HashMap<SocketChannel, Peer>();
 		pieces = new HashMap<Integer, Piece>();
 		uploadSlotActions = new HashMap<Peer, Boolean>();
-		requestedPieces = new BitSet(info.getPieces().length / 20);
-		receivedPieces = new BitSet(info.getPieces().length / 20);
+		requestedPieces = new BitSet(info.getTotalPieces());
+		receivedPieces = new BitSet(info.getTotalPieces());
 		requestPool = new LinkedList<Request>();
 		
 		inEndGameMode = false;
@@ -266,12 +269,11 @@ public class Torrent
 		{
 			try
 			{
-				info.writePiece(piece.getBytes(), pieceIndex);
+				info.writePiece(piece);
 			}
 			catch (Exception e)
 			{
 				System.out.println("ERROR: Could not write piece to file");
-				e.printStackTrace();
 				System.exit(-1);
 			}
 
@@ -294,7 +296,7 @@ public class Torrent
 				{
 					peer.writeMessage(Peer.MessageType.HAVE, payload);
 				}
-				//Peer's write buffer was full, so removing it next time during select
+				//Peer's write buffer was full, so removing the peer
 				catch (Exception e)
 				{
 					forceRemovePeer(peer);
@@ -328,7 +330,7 @@ public class Torrent
 	{
 		//Calculating the piece length (possibly shorter if it is the last piece)
 		int pieceLength = info.getPieceLength();
-		if (p == ((info.getPieces().length / 20) - 1))
+		if (p == (info.getTotalPieces() - 1))
 		{
 			pieceLength = info.getFileLength() - (p * pieceLength);
 		}
@@ -350,16 +352,19 @@ public class Torrent
 	public void start()
 	{
 				
-		//Starting up the announcer (runs immediately and then schedules a next run)
+		//Starting up the announcer (runs immediately and then it internally handles scheduling)
 		(new TorrentAnnouncer(this)).run();
 		
 		//Starting up the upload slot assign timer
-		Timer uploadSlotTimer = new Timer();
+		Timer uploadSlotTimer = new Timer(false);
 		uploadSlotTimer.scheduleAtFixedRate(new UploadSlotAssigner(NUM_UPLOAD_SLOTS), 0, SLOT_ASSIGN_TIMER_PERIOD);
 		
 		//Starting up the request timer
-		Timer requestTimer = new Timer();
+		Timer requestTimer = new Timer(false);
 		requestTimer.scheduleAtFixedRate(new RequestTimer(), 0, REQUEST_TIMER_PERIOD);
+
+		//Initializing the end game request timer
+		Timer endGameRequestTimer = null;
 		
 		//Looping forever
 		while(true)
@@ -380,16 +385,47 @@ public class Torrent
 			}
 		
 			//Downloaded all of the pieces
-			if (receivedPieces.cardinality() == (info.getPieces().length / 20))
+			if ((receivedPieces.cardinality() == info.getTotalPieces()) && (state != State.COMPLETED))
 			{
-				System.out.println("FINISHED!");
-				uploadSlotTimer.cancel();
+				System.out.println("Finished Downloading!");
+
 				state = State.COMPLETED;
+
+				//Removing all seeder peers, since they are not needed any more
+				synchronized (peers)
+				{
+					LinkedList<Peer> peerSet = new LinkedList<Peer>(peers.values());
+					for (Peer peer : peerSet)
+					{
+						if (peer.getPieces().cardinality() == info.getTotalPieces())
+						{
+							forceRemovePeer(peer);
+						}
+					}
+				}
+
+				//Canceling the request timer and end game request timer
+				requestTimer.cancel();
+				if (endGameRequestTimer != null)
+				{
+					endGameRequestTimer.cancel();
+				}
+
+				//Setting the upload slot timer to instead run every 30 seconds
+				uploadSlotTimer.cancel();
+				uploadSlotTimer = new Timer(false);
+				uploadSlotTimer.scheduleAtFixedRate(new UploadSlotAssigner(NUM_UPLOAD_SLOTS), 0, SEEDING_SLOT_ASSIGN_TIMER_PERIOD);
+
+				//Canceling the current announcer timer, and doing it immediately to show completition
+				announcerTimer.cancel();
+				announcerTimer = new Timer(false);
+				announcerTimer.schedule(new TorrentAnnouncer(this), 0);
+
 				break;
 			}
 			
 			//Checking to see if the torrent can start end game mode
-			if (((requestedPieces.cardinality() >= ((double)(info.getPieces().length / 20) * 0.95)) && (!inEndGameMode))
+			if (((requestedPieces.cardinality() >= ((double)info.getTotalPieces() * 0.95)) && (!inEndGameMode) && (state != State.COMPLETED))
 				|| (inEndGameMode && endGameRequestTimerStatus))
 			{
 				//Previously not in end game mode
@@ -400,7 +436,7 @@ public class Torrent
 					inEndGameMode = true;
 		
 					//Starting up the end game mode request timer
-					Timer endGameRequestTimer = new Timer();
+					endGameRequestTimer = new Timer();
 					endGameRequestTimer.scheduleAtFixedRate(new EndGameRequestTimer(), END_GAME_REQUEST_TIMER_PERIOD, END_GAME_REQUEST_TIMER_PERIOD);
 				}
 				else
@@ -420,11 +456,11 @@ public class Torrent
 
 				//Calculating the unfulfilled requests
 				BitSet unfulfilledPieces = ((BitSet)receivedPieces.clone());
-				unfulfilledPieces.flip(0, (info.getPieces().length / 20));
+				unfulfilledPieces.flip(0, info.getTotalPieces());
 
 				//Going through all of the unfulfilled pieces and adding them to a list
 				int pieceIndex = -1;
-				int totalPieces = info.getPieces().length / 20;
+				int totalPieces = info.getTotalPieces();
 				LinkedList<Piece> pieceList = new LinkedList<Piece>();
 				while (((pieceIndex = unfulfilledPieces.nextSetBit(pieceIndex + 1)) != -1))
 				{
@@ -443,7 +479,7 @@ public class Torrent
 					if (piece == null)
 					{
 						int pieceLength = info.getPieceLength();
-						if (pieceIndex == ((info.getPieces().length / 20) - 1))
+						if (pieceIndex == (totalPieces - 1))
 						{
 							pieceLength = info.getFileLength() - (pieceIndex * pieceLength);
 						}
@@ -645,7 +681,6 @@ public class Torrent
 					{
 //						System.out.println("Handshake Force Remove: " + e);
 //						e.printStackTrace();
-						selected.cancel();
 						forceRemovePeer(peer);
 					}
 				}
@@ -718,7 +753,6 @@ public class Torrent
 					{
 //						System.out.println("Force Remove: " + e);
 //						e.printStackTrace();
-						selected.cancel();
 						forceRemovePeer(peer);
 					}
 				}
@@ -755,7 +789,27 @@ public class Torrent
 			addRequestsToPool(peer.getRequests());
 			addRequestsToPool(peer.getSentRequests());
 
-			//Removing the peer from the map
+			//Removing the peer from its selector (if necessary)
+			for(SelectionKey handshakeSelectKey : handshakeSelect.keys())
+			{
+				SocketChannel sock = (SocketChannel)handshakeSelectKey.channel();
+				if (peer.getSocket().equals(sock))
+				{
+					handshakeSelectKey.cancel();
+					break;
+				}
+			}
+			for(SelectionKey selectKey : select.keys())
+			{
+				SocketChannel sock = (SocketChannel)selectKey.channel();
+				if (peer.getSocket().equals(sock))
+				{
+					selectKey.cancel();
+					break;
+				}
+			}
+
+			//Removing the peer from the hashmap
 			peers.remove(peer.getSocket());
 		}
 	}
@@ -850,7 +904,8 @@ public class Torrent
 		*/
 		private void schedule(int seconds)
 		{
-			(new Timer(false)).schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
+			announcerTimer = new Timer(false);
+			announcerTimer.schedule(new TorrentAnnouncer(toAnnounce), seconds * 1000);
 		}
 		
 		/**
@@ -936,6 +991,12 @@ public class Torrent
 				schedule(30);
 				return;
 			}
+
+			//Updating state to running upon a successful response after started state
+			if (state == State.STARTED)
+			{
+				state = State.RUNNING;
+			}
 			
 			//Parsing the response from the tracker
 			try
@@ -966,37 +1027,41 @@ public class Torrent
 				{
 					trackerID = new String(replyDictionary.get("tracker id").getBytes());
 				}
-				
-				//Getting peer information via dictionaries (Throws exception if tracker sent in binary format)
-				try
+
+				//Skipping over new peers if we are completed
+				if (state != state.COMPLETED)
 				{
-					List<BEValue> peersDictionaries = replyDictionary.get("peers").getList();
-
-					for (BEValue peerDictionary : peersDictionaries)
+					//Getting peer information via dictionaries (Throws exception if tracker sent in binary format)
+					try
 					{
-						Map<String, BEValue> peerDictionaryMap = peerDictionary.getMap();
+						List<BEValue> peersDictionaries = replyDictionary.get("peers").getList();
 
-						byte[] peerID = peerDictionaryMap.get("peer id").getBytes();
-						String IPAddr = peerDictionaryMap.get("ip").getString();
-						int port = peerDictionaryMap.get("port").getInt();
+						for (BEValue peerDictionary : peersDictionaries)
+						{
+							Map<String, BEValue> peerDictionaryMap = peerDictionary.getMap();
 
-						addPeer(new Peer(toAnnounce, peerID, IPAddr, port), false);
+							byte[] peerID = peerDictionaryMap.get("peer id").getBytes();
+							String IPAddr = peerDictionaryMap.get("ip").getString();
+							int port = peerDictionaryMap.get("port").getInt();
+
+							addPeer(new Peer(toAnnounce, peerID, IPAddr, port), false);
+						}
 					}
-				}
-				//Getting peer information via binary format
-				catch (InvalidBEncodingException e)
-				{
-					byte[] peers = replyDictionary.get("peers").getBytes();
-
-					for (int c = 0; c < peers.length; c += 6)
+					//Getting peer information via binary format
+					catch (InvalidBEncodingException e)
 					{
-						String IPAddr = Integer.toString((int)peers[c] & 0xFF) + "."
-							+ Integer.toString((int)peers[c + 1] & 0xFF) + "."
-							+ Integer.toString((int)peers[c + 2] & 0xFF) + "."
-							+ Integer.toString((int)peers[c + 3] & 0xFF);
-						int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
+						byte[] peers = replyDictionary.get("peers").getBytes();
 
-						addPeer(new Peer(toAnnounce, new byte[20], IPAddr, port), false);
+						for (int c = 0; c < peers.length; c += 6)
+						{
+							String IPAddr = Integer.toString((int)peers[c] & 0xFF) + "."
+								+ Integer.toString((int)peers[c + 1] & 0xFF) + "."
+								+ Integer.toString((int)peers[c + 2] & 0xFF) + "."
+								+ Integer.toString((int)peers[c + 3] & 0xFF);
+							int port = (((peers[c + 4] & 0xFF) << 8) + (peers[c + 5] & 0xFF)) & 0xFFFF;
+
+							addPeer(new Peer(toAnnounce, new byte[20], IPAddr, port), false);
+						}
 					}
 				}
 				
@@ -1061,7 +1126,7 @@ public class Torrent
 				//Choking all seeders and non-interested peers
 				for (Peer p : peerList)
 				{
-					if (p.getPieces().cardinality() == (info.getPieces().length / 20))
+					if (p.getPieces().cardinality() == info.getTotalPieces())
 					{
 						uploadSlotActions.put(p, true);
 					}

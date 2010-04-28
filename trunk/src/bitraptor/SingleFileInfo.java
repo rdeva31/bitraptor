@@ -175,19 +175,15 @@ public class SingleFileInfo extends Info
 		return buffer.put(data);
 	}
 	
-	public void writePiece(byte[] data, int pieceIndex) throws Exception
+	public void writePiece(Piece piece) throws Exception
 	{
-		int pieceSize = getPieceLength();
-		
-		file.seek(pieceIndex * pieceSize);
-		file.write(data);
+		file.seek(piece.getPieceIndex() * getPieceLength());
+		file.write(piece.getBytes());
 	}
 	
 	public void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
-		int pieceSize = getPieceLength();
-		
-		file.seek((pieceIndex * pieceSize) + blockOffset);
+		file.seek((pieceIndex * getPieceLength()) + blockOffset);
 		file.write(data);
 	}
 	
