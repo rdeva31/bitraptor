@@ -181,9 +181,7 @@ public class MultiFileInfo extends Info
 
 	public void writePiece(byte[] data, int pieceIndex) throws Exception
 	{
-		if (data.length != getPieceLength())
-			throw new Exception("data != piece length");
-		
+
 		if (pieceIndex == fileLength / getPieceLength()) //last piece
 			writeBlock(data, pieceIndex, 0, fileLength % getPieceLength());
 		else
@@ -194,9 +192,9 @@ public class MultiFileInfo extends Info
 	{
 		int limit = pieceIndex * getPieceLength() + blockOffset;
 		int cumulativeFileSize = 0;
-		ByteBuffer buffer = ByteBuffer.allocate(getPieceLength());
-		buffer.put(data);
-		buffer.compact();
+		//ByteBuffer buffer = ByteBuffer.allocate(getPieceLength());
+		//buffer.put(data);
+		//buffer.compact();
 		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
 
 		for (SingleFileInfo f = fileQueue.poll(); f != null; f = fileQueue.poll())
@@ -206,9 +204,10 @@ public class MultiFileInfo extends Info
 				//now skip reading limit - cumulativeFileSize
 				RandomAccessFile r = f.getFile();
 				r.seek(limit - cumulativeFileSize);
-				byte[] b = new byte[Math.min(f.getFileLength() - (limit - cumulativeFileSize), blockLength)];
+				byte[] b = Arrays.copyOf(data, Math.min(f.getFileLength() - (limit - cumulativeFileSize), blockLength));
+				data = Arrays.copyOfRange(data, b.length, data.length);
 				int bytesWritten = b.length;
-				buffer.get(b);
+				//buffer.get(b);
 				r.write(b);
 
 				while(bytesWritten < blockLength)
@@ -216,13 +215,14 @@ public class MultiFileInfo extends Info
 					f = fileQueue.poll();
 					r = f.getFile();
 					if (f.getFileLength() > blockLength - bytesWritten) //rest of the contents are in this file
-						b = new byte[blockLength - bytesWritten];
+						b = Arrays.copyOf(data, blockLength - bytesWritten);
 					else //entire file fits into the block but subsequent files have stuff too
-						b = new byte[f.getFileLength()];
+						b = Arrays.copyOf(data, f.getFileLength());
 
-					buffer.get(b);
+					data = Arrays.copyOfRange(data, b.length, data.length);
+
+					//buffer.get(b);
 					r.write(b);
-
 					bytesWritten += b.length;
 				}
 
