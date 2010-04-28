@@ -30,7 +30,7 @@ public class MultiFileInfo extends Info
 		directory = toCopy.directory;
 		files = new ArrayList<SingleFileInfo>();
 		files.addAll(toCopy.files);
-		
+
 		for (SingleFileInfo file : files)
 		{
 			fileLength += file.getFileLength();
@@ -67,7 +67,7 @@ public class MultiFileInfo extends Info
 	{
 		this.files = files;
 		fileLength = 0;
-		
+
 		if (files != null)
 		{
 			for (SingleFileInfo file : files)
@@ -76,7 +76,7 @@ public class MultiFileInfo extends Info
 			}
 		}
 	}
-	
+
 	public int getFileLength()
 	{
 		return fileLength;
@@ -121,12 +121,16 @@ public class MultiFileInfo extends Info
 				s += "\t" + f.toString() + "\n";
 		return s;
 	}
-	
+
 	public ByteBuffer readPiece(int pieceIndex) throws Exception
 	{
-		return readBlock(pieceIndex, 0, getPieceLength());
+		//return readBlock(pieceIndex, 0, getPieceLength());
+		if (pieceIndex == fileLength / getPieceLength()) //last piece
+			return readBlock(pieceIndex, 0, fileLength % getPieceLength());
+		else
+			return readBlock(pieceIndex, 0, getPieceLength());
 	}
-	
+
 	public ByteBuffer readBlock(int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
 		int limit = pieceIndex * getPieceLength() + blockOffset;
@@ -134,10 +138,10 @@ public class MultiFileInfo extends Info
 		ByteBuffer buffer = ByteBuffer.allocate(blockLength);
 		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
 
-		
+
 		for (SingleFileInfo f = fileQueue.poll(); f != null; f = fileQueue.poll())
 		{
-			if (cumulativeFileSize + f.getFileLength() > limit) 
+			if (cumulativeFileSize + f.getFileLength() > limit)
 			{
 				//now skip reading limit - cumulativeFileSize
 				RandomAccessFile r = f.getFile();
@@ -145,7 +149,7 @@ public class MultiFileInfo extends Info
 				byte[] b = new byte[Math.min(f.getFileLength(), blockLength)];
 				int bytesRead = r.read(b);
 				buffer.put(b, 0, bytesRead);
-				
+
 				while(bytesRead < blockLength)
 				{
 					f = fileQueue.poll();
@@ -154,12 +158,12 @@ public class MultiFileInfo extends Info
 						b = new byte[blockLength - bytesRead];
 					else //entire file fits into the block but subsequent files have stuff too
 						b = new byte[f.getFileLength()];
-					
+
 					int bytesReadTemp = r.read(b);
-					
+
 					if (bytesReadTemp == -1)
 						throw new java.io.EOFException("didn't expect EOF");
-					
+
 					bytesRead += bytesReadTemp;
 					buffer.put(b, 0, bytesReadTemp);
 				}
@@ -174,20 +178,26 @@ public class MultiFileInfo extends Info
 
 		return buffer;
 	}
-	
+
 	public void writePiece(byte[] data, int pieceIndex) throws Exception
 	{
+		if (data.length != getPieceLength())
+			throw new Exception("data != piece length");
+		
+		if (pieceIndex == fileLength / getPieceLength()) //last piece
+			writeBlock(data, pieceIndex, 0, fileLength % getPieceLength());
+		else
 			writeBlock(data, pieceIndex, 0, getPieceLength());
+
 	}
 	public void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
 		int limit = pieceIndex * getPieceLength() + blockOffset;
 		int cumulativeFileSize = 0;
-		ByteBuffer buffer = ByteBuffer.allocate(blockLength);
+		ByteBuffer buffer = ByteBuffer.allocate(getPieceLength());
 		buffer.put(data);
 		buffer.compact();
 		Queue<SingleFileInfo> fileQueue = new LinkedList<SingleFileInfo>(files);
-
 
 		for (SingleFileInfo f = fileQueue.poll(); f != null; f = fileQueue.poll())
 		{
@@ -222,7 +232,7 @@ public class MultiFileInfo extends Info
 				cumulativeFileSize += f.getFileLength();
 		}
 	}
-	
+
 	public void finish() throws Exception
 	{
 		for (SingleFileInfo f : files)
