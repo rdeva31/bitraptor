@@ -167,6 +167,15 @@ public abstract class Info
 	}
 
 	/**
+	 * Returns the total number of pieces in the torrent file
+	 * @return total number of pieces
+	 */
+	public int getTotalPieces()
+	{
+		return pieces.length / 20;
+	}
+
+	/**
 	 * Returns the SHA-1 hash of all the pieces.  getPieces().length % 20 == true.
 	 * @return the SHA hash of all the pieces
 	 */
@@ -229,11 +238,10 @@ public abstract class Info
 
 	/**
 	 * Same operation as writeBlock(data, pieceIndex, 0, getPieceLength())
-	 * @param data - data to write, data.length == getPieceLength()
-	 * @param pieceIndex - which piece to write data to
+	 * @param piece piece to write to the file
 	 * @throws Exception on IOException or any other Exception
 	 */
-	public abstract void writePiece(byte[] data, int pieceIndex) throws Exception;
+	public abstract void writePiece(Piece piece) throws Exception;
 	
 	/**
 	 * Writes the given data to the given piece after applying offset.

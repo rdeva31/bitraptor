@@ -180,14 +180,11 @@ public class MultiFileInfo extends Info
 		return buffer;
 	}
 
-	public void writePiece(byte[] data, int pieceIndex) throws Exception
+	public void writePiece(Piece piece) throws Exception
 	{
-		if (pieceIndex == fileLength / getPieceLength()) //last piece
-			writeBlock(data, pieceIndex, 0, fileLength % getPieceLength());
-		else
-			writeBlock(data, pieceIndex, 0, getPieceLength());
-
+		writeBlock(piece.getBytes(), piece.getPieceIndex(), 0, piece.getPieceLength());
 	}
+
 	public void writeBlock(byte[] data, int pieceIndex, int blockOffset, int blockLength) throws Exception
 	{
 		int limit = pieceIndex * getPieceLength() + blockOffset;
