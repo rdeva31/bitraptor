@@ -20,6 +20,8 @@ public class Main
 	private static HashMap<String, Torrent> torrents = new HashMap<String, Torrent>();
 	private static HashMap<SocketChannel, ByteBuffer> buffers = new HashMap<SocketChannel, ByteBuffer>();
 
+	private static int port = 45507;
+
 	/**
 		Starts the BitRaptor program.  No arguments required.
 	 */
@@ -27,6 +29,20 @@ public class Main
 	{
 		System.out.println("BitRaptor -- A bittorrent client");
 		System.out.println("(Type 'help' to see available commands)");
+
+		if ((args == null) || (args.length == 0))
+		{
+			System.out.println("Usage: BitRaptor <port>");
+			return;
+		}
+
+		port = new Integer(args[0]);
+
+		if (port < 1024 || port > 65535)
+		{
+			System.out.println("ERROR: Invalid port number, choose one between 1024-65535");
+			return;
+		}
 		
 		//Starting up the main socket server (not blocking) to listen for incoming peers
 		try
@@ -35,7 +51,7 @@ public class Main
 			sock = ServerSocketChannel.open();
 			sock.configureBlocking(false);
 			sock.socket().setReuseAddress(true);
-			sock.socket().bind(new InetSocketAddress(45507));
+			sock.socket().bind(new InetSocketAddress(port));
 		}
 		catch (Exception e)
 		{
@@ -447,7 +463,7 @@ public class Main
 		{
 			public void run()
 			{
-				Torrent torrent = new Torrent(torrentInfo, 45507);
+				Torrent torrent = new Torrent(torrentInfo, port);
 		
 				torrents.put(new String(torrentInfo.getInfoHash()), torrent);
 				
