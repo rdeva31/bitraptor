@@ -582,6 +582,8 @@ public class Torrent
 						continue;
 					}
 
+//					System.out.println("[Piece Request] To peer " + peer.getSockAddr() + " for piece # " + p);
+
 					//Generating all of the requests and adding them to the peer
 					generateRequests(p, peer);
 
@@ -881,8 +883,6 @@ public class Torrent
 						//Sending our bitfield if we have pieces
 						if(receivedPieces.cardinality() != 0)
 						{
-							peer.getWriteMsgBuffer().clear();
-
 							int totalPieces = info.getTotalPieces();
 							ByteBuffer payload = ByteBuffer.allocate((int)Math.ceil((double)totalPieces / 8));
 
@@ -1168,13 +1168,13 @@ public class Torrent
 				peer.resetUploaded();
 			}
 
-			if(state != State.COMPLETED)
+			if(state == State.COMPLETED)
 			{
-				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / SEEDING_SLOT_ASSIGN_TIMER_PERIOD, ((double)uploadedTotal / 1024.0) / SEEDING_SLOT_ASSIGN_TIMER_PERIOD, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
+				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / (SEEDING_SLOT_ASSIGN_TIMER_PERIOD / 1000), ((double)uploadedTotal / 1024.0) / (SEEDING_SLOT_ASSIGN_TIMER_PERIOD / 1000), ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
 			}
 			else
 			{
-				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / SLOT_ASSIGN_TIMER_PERIOD, ((double)uploadedTotal / 1024.0) / SLOT_ASSIGN_TIMER_PERIOD, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
+				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / (SLOT_ASSIGN_TIMER_PERIOD / 1000), ((double)uploadedTotal / 1024.0) / (SLOT_ASSIGN_TIMER_PERIOD / 1000), ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
 			}
 
 			synchronized(uploadSlotActions)
