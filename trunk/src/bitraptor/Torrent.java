@@ -405,7 +405,7 @@ public class Torrent
 				}
 
 				//Canceling the request timer and end game request timer
-				requestTimer.cancel();
+				//requestTimer.cancel();
 				if (endGameRequestTimer != null)
 				{
 					endGameRequestTimer.cancel();
@@ -649,6 +649,32 @@ public class Torrent
 //									System.out.println("... Success!");
 									selected.cancel();
 									sock.register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+
+									//Clearing the current queued messages and sending our bitfield if we have pieces
+									if(receivedPieces.cardinality() != 0)
+									{
+										peer.getWriteMsgBuffer().clear();
+
+										int totalPieces = info.getTotalPieces();
+										ByteBuffer payload = ByteBuffer.allocate((int)Math.ceil((double)totalPieces / 8));
+
+										for(int p = 0; p < totalPieces;)
+										{
+											byte temp = 0;
+
+											for(int b = 7; (b >= 0) && (p < totalPieces); b--)
+											{
+												if(receivedPieces.get(p++))
+												{
+													temp |= (1 << b);
+												}
+											}
+
+											payload.put(temp);
+										}
+
+										peer.writeMessage(Peer.MessageType.BITFIELD, payload);
+									}
 								}
 								//Removing the peer if the handshake does not check out
 								else
@@ -751,7 +777,7 @@ public class Torrent
 					//Removing the peer due to exception
 					catch (Exception e)
 					{
- 						System.out.println("Force Remove: " + e);
+// 						System.out.println("Force Remove: " + e);
 //						e.printStackTrace();
 						forceRemovePeer(peer);
 					}
@@ -760,7 +786,7 @@ public class Torrent
 			//Removing the peer due to exception
 			catch (Exception e)
 			{
-				System.out.println("Exception: " + e);
+//				System.out.println("Exception: " + e);
 //				e.printStackTrace();
 				return;
 			}
@@ -785,7 +811,7 @@ public class Torrent
 				return;
 			}
 
-			System.out.println("Removing Peer " + peer.getSockAddr());
+//			System.out.println("Removing Peer " + peer.getSockAddr());
 
 			//Adding all the requests to the torrent request pool
 			addRequestsToPool(peer.getRequests());
@@ -825,7 +851,7 @@ public class Torrent
 		synchronized (peers)
 		{
 			//Dropping connection if torrent has more than 50 peers
-			if (peers.values().size() >= 50)
+			if (peers.values().size() >= 75)
 			{
 				if (incoming)
 				{
@@ -851,6 +877,32 @@ public class Torrent
 					{
 //						System.out.println("[PEER INC] " + peer.getSockAddr());
 						peer.getSocket().register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+
+						//Sending our bitfield if we have pieces
+						if(receivedPieces.cardinality() != 0)
+						{
+							peer.getWriteMsgBuffer().clear();
+
+							int totalPieces = info.getTotalPieces();
+							ByteBuffer payload = ByteBuffer.allocate((int)Math.ceil((double)totalPieces / 8));
+
+							for(int p = 0; p < totalPieces;)
+							{
+								byte temp = 0;
+
+								for(int b = 7; (b >= 0) && (p < totalPieces); b--)
+								{
+									if(receivedPieces.get(p++))
+									{
+										temp |= (1 << b);
+									}
+								}
+
+								payload.put(temp);
+							}
+
+							peer.writeMessage(Peer.MessageType.BITFIELD, payload);
+						}
 					}
 					//Outgoing Peer: Waiting on connection and a valid handshake, so place in handshake selector
 					else
@@ -865,7 +917,6 @@ public class Torrent
 					return;
 				}
 
-				//Adding the peer to the list
 				peers.put(peer.getSocket(), peer);
 			}
 		}
@@ -935,7 +986,7 @@ public class Torrent
 		
 				try
 				{
-					System.out.println("[ANNOUNCE] " + announceURL.toString());
+//					System.out.println("[ANNOUNCE] " + announceURL.toString());
 					
 					//Initializing the connection
 					URL trackerQueryURL = new URL(announceURL.toString() + query);
@@ -976,8 +1027,8 @@ public class Torrent
 				//Move onto the next announce URL
 				catch (Exception e)
 				{
-					System.out.println("Exception:");
-					e.printStackTrace();
+//					System.out.println("Exception:");
+//					e.printStackTrace();
 					continue;
 				}
 			}
@@ -985,8 +1036,8 @@ public class Torrent
 			//No response from any of the announce URLs
 			if (response == null)
 			{
-				System.out.println("ERROR: Couldn't announce");
-				System.out.println("Will retry in 30 seconds...");
+//				System.out.println("ERROR: Couldn't announce");
+//				System.out.println("Will retry in 30 seconds...");
 				schedule(30);
 				return;
 			}
@@ -1007,9 +1058,9 @@ public class Torrent
 				if (replyDictionary.containsKey("failure reason"))
 				{
 					String reason = new String(replyDictionary.get("failure reason").getBytes());
-					System.out.println("Announce Failed: " + reason);
+//					System.out.println("Announce Failed: " + reason);
 					
-					System.out.println("Will retry in 30 seconds...");
+//					System.out.println("Will retry in 30 seconds...");
 					schedule(30);
 					return;
 				}
@@ -1018,8 +1069,8 @@ public class Torrent
 				int seeders = replyDictionary.get("complete").getInt();
 				int leechers = replyDictionary.get("incomplete").getInt();
 				
-				System.out.println("Seeders: " + seeders);
-				System.out.println("Leechers: " + leechers);
+//				System.out.println("Seeders: " + seeders);
+//				System.out.println("Leechers: " + leechers);
 				
 				//Tracker ID is an optional field
 				if (replyDictionary.containsKey("tracker id"))
@@ -1065,14 +1116,14 @@ public class Torrent
 				}
 				
 				//Scheduling another announce after the specified time interval
-				System.out.println("Announce Successful! " + interval + " seconds until next announce");
+//				System.out.println("Announce Successful! " + interval + " seconds until next announce");
 				schedule(interval);
 			}
 			//Invalid response from the tracker (Could not be parsed)
 			catch (Exception e)
 			{
-				System.out.println("ERROR: Received an invalid response from the tracker");
-				System.out.println("Will retry in 30 seconds...");
+//				System.out.println("ERROR: Received an invalid response from the tracker");
+//				System.out.println("Will retry in 30 seconds...");
 				e.printStackTrace();
 				schedule(30);
 			}
@@ -1106,6 +1157,7 @@ public class Torrent
 				}
 			});
 
+			//Calculating and reporting upload/download totals
 			int downloadedTotal = 0;
 			int uploadedTotal = 0;
 			for (Peer peer : peerList)
@@ -1116,7 +1168,14 @@ public class Torrent
 				peer.resetUploaded();
 			}
 
-			System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / 10, ((double)uploadedTotal / 1024.0) / 10, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
+			if(state != State.COMPLETED)
+			{
+				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / SEEDING_SLOT_ASSIGN_TIMER_PERIOD, ((double)uploadedTotal / 1024.0) / SEEDING_SLOT_ASSIGN_TIMER_PERIOD, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
+			}
+			else
+			{
+				System.out.printf("DL %10.2f KBps - UP %10.2f KBps - Completed %10.2f%%\n", ((double)downloadedTotal / 1024.0) / SLOT_ASSIGN_TIMER_PERIOD, ((double)uploadedTotal / 1024.0) / SLOT_ASSIGN_TIMER_PERIOD, ((double)getReceivedPieces().cardinality() / (double)(getInfo().getPieces().length / 20)) * 100);
+			}
 
 			synchronized(uploadSlotActions)
 			{

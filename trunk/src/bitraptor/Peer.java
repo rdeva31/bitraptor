@@ -263,12 +263,21 @@ public class Peer implements Comparable
 	}
 
 	/**
-		Gets the read buffer for reading in data
-		@return read buffer
+		Gets the write buffer for writing out data
+		@return write buffer
 	*/
 	public ByteBuffer getWriteBuffer()
 	{
 		return writeBuffer;
+	}
+
+	/**
+		Gets the write message buffer for sending messages
+		@return write message buffer
+	*/
+	public ByteBuffer getWriteMsgBuffer()
+	{
+		return writeMsgBuffer;
 	}
 
 	/**
