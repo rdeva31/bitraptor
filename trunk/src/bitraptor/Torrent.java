@@ -30,7 +30,7 @@ public class Torrent
 
 	private Timer announcerTimer;
 
-	private final int SEEDING_SLOT_ASSIGN_TIMER_PERIOD = 30*1000; //in milliseconds
+	private final int SEEDING_SLOT_ASSIGN_TIMER_PERIOD = 10*1000; //in milliseconds
 	private final int SLOT_ASSIGN_TIMER_PERIOD = 10*1000; //in milliseconds
 	private final int NUM_UPLOAD_SLOTS = 5; //number of upload slots
 	private final int BLOCK_SIZE = 16*1024;
@@ -39,7 +39,7 @@ public class Torrent
 	private boolean requestTimerStatus = false; 
 	
 	private final int END_GAME_REQUEST_TIMER_PERIOD = 30*1000; //in milliseconds
-	private boolean endGameRequestTimerStatus = false; 
+	private boolean endGameRequestTimerStatus = false;
 	
 	/**
 		Initializes the Torrent based on the information from the file.
@@ -420,8 +420,6 @@ public class Torrent
 				announcerTimer.cancel();
 				announcerTimer = new Timer(false);
 				announcerTimer.schedule(new TorrentAnnouncer(this), 0);
-
-				break;
 			}
 			
 			//Checking to see if the torrent can start end game mode
@@ -677,6 +675,9 @@ public class Torrent
 
 										peer.writeMessage(Peer.MessageType.BITFIELD, payload);
 									}
+
+									//Handling any messages (bitfield/haves) that were sent at the same time as the handshake
+									peer.handleMessages();
 								}
 								//Removing the peer if the handshake does not check out
 								else
@@ -713,12 +714,10 @@ public class Torrent
 					}
 				}
 			}
-			//Removing the peer due to exception
 			catch (Exception e)
 			{
 //				System.out.println("Exception: " + e);
 //				e.printStackTrace();
-				return;
 			}
 		
 			//Main Selector
@@ -785,12 +784,10 @@ public class Torrent
 					}
 				}
 			}
-			//Removing the peer due to exception
 			catch (Exception e)
 			{
 //				System.out.println("Exception: " + e);
 //				e.printStackTrace();
-				return;
 			}
 		}
 	}
@@ -879,7 +876,7 @@ public class Torrent
 					{
 //						System.out.println("[PEER INC] " + peer.getSockAddr());
 						peer.getSocket().register(select, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
-
+						
 						//Sending our bitfield if we have pieces
 						if(receivedPieces.cardinality() != 0)
 						{
@@ -1191,7 +1188,7 @@ public class Torrent
 						uploadSlotActions.put(p, true);
 						numSeeders++;
 					}
-					else if (!p.isInterested())
+					else if (!p.isPeerInterested())
 					{
 						uploadSlotActions.put(p, true);
 					}

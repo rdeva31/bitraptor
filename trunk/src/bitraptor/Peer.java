@@ -496,7 +496,7 @@ public class Peer implements Comparable
 		//Dropping the connection if the info hash does not match
 		if (!Arrays.equals(info.getInfoHash(), infoHash))
 		{
-			readBuffer.clear();
+			readBuffer.compact();
 			return false;
 		}
 		
@@ -793,7 +793,7 @@ public class Peer implements Comparable
 							pieceIndex = -1;
 							while ((pieceIndex = pieces.nextSetBit(pieceIndex + 1)) != -1)
 							{
-								if(!torrent.getRequestedPieces().get(pieceIndex))
+								if(!torrent.getReceivedPieces().get(pieceIndex) || !torrent.getRequestedPieces().get(pieceIndex))
 								{
 									setInterested(true);
 									break;
