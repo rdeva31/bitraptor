@@ -206,6 +206,7 @@ public class Main
 						//Dropping the connection if no torrent matches it
 						else
 						{
+//							System.out.println("[INC FAIL] " + (InetSocketAddress)(incSock.socket().getRemoteSocketAddress()));
 							selected.cancel();
 							buffers.remove(incSock);
 							incSock.close();
