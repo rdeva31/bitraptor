@@ -793,7 +793,7 @@ public class Peer implements Comparable
 							pieceIndex = -1;
 							while ((pieceIndex = pieces.nextSetBit(pieceIndex + 1)) != -1)
 							{
-								if(!torrent.getReceivedPieces().get(pieceIndex) || !torrent.getRequestedPieces().get(pieceIndex))
+								if(!torrent.getRequestedPieces().get(pieceIndex))
 								{
 									setInterested(true);
 									break;
