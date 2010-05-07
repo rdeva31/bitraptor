@@ -779,7 +779,7 @@ public class Torrent
 					//Removing the peer due to exception
 					catch (Exception e)
 					{
-// 						System.out.println("Force Remove: " + e);
+//						System.out.println("Force Remove: " + e);
 //						e.printStackTrace();
 						forceRemovePeer(peer);
 					}
@@ -1201,8 +1201,8 @@ public class Torrent
 					}
 				}
 
-				System.out.println("Seeders: " + numSeeders + " Leechers: " + (peerList.size() - numSeeders));
-				System.out.println("Total Interested: " + leechers.size());
+//				System.out.println("Seeders: " + numSeeders + " Leechers: " + (peerList.size() - numSeeders));
+//				System.out.println("Total Interested: " + leechers.size());
 
 				//Unchoke peers up to (slots - 1) total
 				int numUnchoke = Math.min(slots - 1, leechers.size());

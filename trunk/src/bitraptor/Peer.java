@@ -439,6 +439,26 @@ public class Peer implements Comparable
 	}
 
 	/**
+		Writing a message to the message buffer that has a specified length of bytes, assuming that the
+		bytes that are not currently in payload will be sent later. Used for PIECE messages to peers.
+		@param type type of message
+		@param payload payload for the message
+		@param additionalLength number of bytes that will come later in the message, that are not present in the payload
+	*/
+	public void writeMessage(MessageType type, ByteBuffer payload, int additionalLength)
+	{
+		if (payload != null)
+		{
+			payload.flip();
+			writeMsgBuffer.putInt(1 + payload.remaining() + additionalLength).put((byte)type.valueOf()).put(payload);
+		}
+		else
+		{
+			writeMsgBuffer.putInt(1 + additionalLength).put((byte)type.valueOf());
+		}
+	}
+
+	/**
 		Checking the handshake message that was sent from the peer to ensure validity
 	*/
 	public boolean checkHandshake() throws Exception
@@ -522,7 +542,7 @@ public class Peer implements Comparable
 			//No more block data to send, so end the current request
 			if (!peerBlockBuffer.hasRemaining())
 			{
-				System.out.println("[SERVED] Peer " + sockAddr);
+//				System.out.println("[SERVED] Peer " + sockAddr);
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
@@ -571,7 +591,7 @@ public class Peer implements Comparable
 				header.putInt(pieceIndex);
 				header.putInt(blockOffset);
 				
-				writeMessage(MessageType.PIECE, header);
+				writeMessage(MessageType.PIECE, header, blockLength);
 
 //				System.out.println("[HANDLING PEER REQUEST] Peer " + sockAddr);
 					
