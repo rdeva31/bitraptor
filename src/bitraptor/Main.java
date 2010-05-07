@@ -164,6 +164,7 @@ public class Main
 						if (buffer.get() != 19)
 						{
 							selected.cancel();
+							buffers.remove(incSock);
 							incSock.close();
 							continue;
 						}
@@ -176,6 +177,7 @@ public class Main
 							if (protocolName[b] != name[b])
 							{
 								selected.cancel();
+								buffers.remove(incSock);
 								incSock.close();
 								continue;
 							}
@@ -205,6 +207,7 @@ public class Main
 						else
 						{
 							selected.cancel();
+							buffers.remove(incSock);
 							incSock.close();
 							continue;
 						}

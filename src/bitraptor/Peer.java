@@ -93,9 +93,9 @@ public class Peer implements Comparable
 		peerChoking = true;
 		peerInterested = false;
 		pieces = new BitSet(info.getTotalPieces());
-		readBuffer = ByteBuffer.allocateDirect(8192);
-		writeBuffer = ByteBuffer.allocateDirect(8192);
-		writeMsgBuffer = ByteBuffer.allocateDirect(1024);
+		readBuffer = ByteBuffer.allocate(4096);
+		writeBuffer = ByteBuffer.allocate(4096);
+		writeMsgBuffer = ByteBuffer.allocate(1024);
 		readBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeBuffer.order(ByteOrder.BIG_ENDIAN);
 		writeMsgBuffer.order(ByteOrder.BIG_ENDIAN);
@@ -502,7 +502,7 @@ public class Peer implements Comparable
 			catch (BufferOverflowException e)
 			{
 				int prevLimit = peerBlockBuffer.limit();
-				peerBlockBuffer.limit(writeBuffer.remaining());
+				peerBlockBuffer.limit(startingPosition + writeBuffer.remaining());
 				writeBuffer.put(peerBlockBuffer);
 				peerBlockBuffer.limit(prevLimit);
 			}
@@ -513,7 +513,7 @@ public class Peer implements Comparable
 			//No more block data to send, so end the current request
 			if (!peerBlockBuffer.hasRemaining())
 			{
-//				System.out.println("[PEER REQUEST SERVED]");
+				System.out.println("[SERVED] Peer " + sockAddr);
 				curPeerRequest = null;
 				isSendingBlock = false;
 			}
@@ -564,7 +564,7 @@ public class Peer implements Comparable
 				
 				writeMessage(MessageType.PIECE, header);
 
-//				System.out.println("[HANDLING PEER REQUEST]");
+//				System.out.println("[HANDLING PEER REQUEST] Peer " + sockAddr);
 					
 				isSendingBlock = true;
 			}
